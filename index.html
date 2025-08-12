@@ -546,4 +546,90 @@
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium">
+                <label className="block text-sm font-medium">Labor Hours High</label>
+                <input
+                  type="number"
+                  name="hoursHigh"
+                  value={formData.hoursHigh}
+                  onChange={handleInputChange}
+                  className="w-full p-2 border rounded"
+                  placeholder="High Hours"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Mileage (miles)</label>
+                <input
+                  type="number"
+                  name="mileage"
+                  value={formData.mileage}
+                  onChange={handleInputChange}
+                  className="w-full p-2 border rounded"
+                  placeholder="Mileage"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Additional Materials Cost ($)</label>
+                <input
+                  type="number"
+                  name="materials"
+                  value={formData.materials}
+                  onChange={handleInputChange}
+                  className="w-full p-2 border rounded"
+                  placeholder="Materials"
+                />
+              </div>
+            </div>
+            <label className="flex items-center mt-2">
+              <input
+                type="checkbox"
+                name="packing"
+                checked={formData.packing}
+                onChange={(e) => setFormData({ ...formData, packing: e.target.checked })}
+                className="mr-2"
+              />
+              Packing Service Needed
+            </label>
+          </div>
+
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold">Room Visualization</h2>
+            <select
+              value={selectedRoomIndex}
+              onChange={(e) => setSelectedRoomIndex(parseInt(e.target.value))}
+              className="w-full p-2 border rounded mb-2"
+            >
+              {formData.rooms.map((room, index) => (
+                <option key={index} value={index}>
+                  {room.name || `Room ${index + 1}`}
+                </option>
+              ))}
+            </select>
+            <canvas ref={canvasRef} width="300" height="300" className="w-full"></canvas>
+            <p className="text-sm text-gray-600">Preview of items in selected room (colored rectangles).</p>
+          </div>
+
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold">Estimate: ${calculateEstimate().low} - ${calculateEstimate().high}</h2>
+            <div className="flex gap-2">
+              <button
+                onClick={generatePDF}
+                className="bg-green-500 text-white px-4 py-2 rounded"
+              >
+                Download Quote PDF
+              </button>
+              <button
+                onClick={exportToCSV}
+                className="bg-gray-500 text-white px-4 py-2 rounded"
+              >
+                Export to CSV
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
