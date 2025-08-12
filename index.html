@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#ffffff">
   <title>Assisted Living Assessment App</title>
@@ -32,7 +33,6 @@
     const { jsPDF } = window.jspdf;
 
     function App() {
-      // State for configurable rates (persisted in localStorage, defaults from spreadsheet resale)
       const [rates, setRates] = useState(() => {
         const savedRates = localStorage.getItem('rates');
         return savedRates ? JSON.parse(savedRates) : {
@@ -49,7 +49,6 @@
         };
       });
 
-      // State for assessment data
       const [formData, setFormData] = useState({
         clientName: '',
         rooms: [
@@ -75,20 +74,17 @@
       const [model, setModel] = useState(null);
       const [loadingModel, setLoadingModel] = useState(true);
 
-      // Load COCO-SSD model on mount
       useEffect(() => {
         cocoSsd.load().then(loadedModel => {
           setModel(loadedModel);
           setLoadingModel(false);
-        });
+        }).catch(err => console.error('Model loading failed:', err));
       }, []);
 
-      // Persist rates to localStorage
       useEffect(() => {
         localStorage.setItem('rates', JSON.stringify(rates));
       }, [rates]);
 
-      // Update form data
       const handleInputChange = (e, roomIndex = null, itemIndex = null, field = null) => {
         if (roomIndex !== null && itemIndex === null) {
           const newRooms = [...formData.rooms];
@@ -103,12 +99,10 @@
         }
       };
 
-      // Update rates
       const handleRateChange = (e) => {
         setRates({ ...rates, [e.target.name]: parseFloat(e.target.value) || 0 });
       };
 
-      // Add new room
       const addRoom = () => {
         setFormData({
           ...formData,
@@ -116,14 +110,12 @@
         });
       };
 
-      // Add new item to a specific room
       const addItemToRoom = (roomIndex) => {
         const newRooms = [...formData.rooms];
         newRooms[roomIndex].items.push({ name: '', width: '', length: '', height: '' });
         setFormData({ ...formData, rooms: newRooms });
       };
 
-      // Handle photo upload for a room
       const handlePhotoUpload = (e, roomIndex) => {
         const file = e.target.files[0];
         if (file) {
@@ -131,50 +123,46 @@
           const newRooms = [...formData.rooms];
           newRooms[roomIndex].photo = photoUrl;
           setFormData({ ...formData, rooms: newRooms });
-
-          // Automatically analyze after upload
-          setTimeout(() => analyzePhoto(roomIndex), 1000); // Delay to ensure image loaded
+          setTimeout(() => analyzePhoto(roomIndex), 1000);
         }
       };
 
-      // Analyze photo for materials (using COCO-SSD)
       const analyzePhoto = async (roomIndex) => {
         if (loadingModel || !model) return;
-
         const room = formData.rooms[roomIndex];
         if (!room.photo) return;
 
-        const img = new Image();
-        img.src = room.photo;
-        await new Promise(resolve => { img.onload = resolve; });
+        try {
+          const img = new Image();
+          img.src = room.photo;
+          await new Promise(resolve => { img.onload = resolve; });
 
-        const predictions = await model.detect(img);
+          const predictions = await model.detect(img);
+          let dishCount = 0;
+          predictions.forEach(pred => {
+            if (['cup', 'bowl', 'bottle', 'wine glass', 'fork', 'knife', 'spoon'].includes(pred.class)) {
+              dishCount++;
+            }
+          });
 
-        // Count dish-related objects
-        let dishCount = 0;
-        predictions.forEach(pred => {
-          if (['cup', 'bowl', 'bottle', 'wine glass', 'fork', 'knife', 'spoon'].includes(pred.class)) {
-            dishCount++;
-          }
-        });
+          const dishPacks = Math.ceil(dishCount / 20);
+          const paperPadBoxes = Math.ceil((dishCount * 4) / 25);
+          const bubbleWrapFeet = dishCount * 2;
+          const boxes = Math.ceil(dishCount / 20);
 
-        // Refined estimates based on research
-        const dishPacks = Math.ceil(dishCount / 20); // ~20 dishes per dish pack/box
-        const paperPadBoxes = Math.ceil((dishCount * 4) / 25); // 4 sheets per dish, 25 sheets per box
-        const bubbleWrapFeet = dishCount * 2; // ~2 ft per dish if using bubble wrap
-        const boxes = Math.ceil(dishCount / 20); // General boxes, or align with dishPacks
-
-        const newRooms = [...formData.rooms];
-        newRooms[roomIndex].estimatedMaterials = { boxes, bubbleWrapFeet, paperPadBoxes, dishPacks };
-        setFormData({ ...formData, rooms: newRooms });
+          const newRooms = [...formData.rooms];
+          newRooms[roomIndex].estimatedMaterials = { boxes, bubbleWrapFeet, paperPadBoxes, dishPacks };
+          setFormData({ ...formData, rooms: newRooms });
+        } catch (err) {
+          console.error('Photo analysis failed:', err);
+          alert('Failed to analyze photo. Please try another image.');
+        }
       };
 
-      // Calculate estimate using configurable rates and low/high logic, including materials
       const calculateEstimate = () => {
         const totalItems = formData.rooms.reduce((sum, room) => sum + room.items.length, 0);
         let totalMaterialsCost = rates.materialsCost + (parseFloat(formData.materials) || 0);
 
-        // Add estimated materials from photos
         formData.rooms.forEach(room => {
           const mat = room.estimatedMaterials;
           totalMaterialsCost += mat.boxes * rates.boxCost;
@@ -194,7 +182,6 @@
         return { low, high };
       };
 
-      // Generate PDF quote
       const generatePDF = () => {
         const { low, high } = calculateEstimate();
         const doc = new jsPDF();
@@ -222,7 +209,6 @@
         doc.save(`${formData.clientName}_quote.pdf`);
       };
 
-      // Export to CSV for CRM
       const exportToCSV = () => {
         const { low, high } = calculateEstimate();
         const headers = ['Client Name', 'Number of Movers', 'Labor Hours Low', 'Labor Hours High', 'Number of Vehicles', 'Mileage (miles)', 'Packing Service', 'Materials Cost', 'Total Low', 'Total High', 'Rooms'];
@@ -252,7 +238,6 @@
         URL.revokeObjectURL(url);
       };
 
-      // Draw 2D room visualization for selected room
       useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -282,7 +267,6 @@
         <div className="p-4 max-w-md mx-auto bg-gray-100 min-h-screen">
           <h1 className="text-2xl font-bold mb-4">Assessment App</h1>
 
-          {/* Configuration Settings */}
           <div className="mb-6 p-4 border rounded bg-white">
             <h2 className="text-lg font-semibold mb-2">Configuration Settings</h2>
             <p className="text-sm text-gray-600 mb-2">Adjust rates (saved locally for future use)</p>
@@ -330,7 +314,6 @@
             </div>
           </div>
 
-          {/* Client Name */}
           <div className="mb-4">
             <label className="block text-sm font-medium">Client Name</label>
             <input
@@ -343,7 +326,6 @@
             />
           </div>
 
-          {/* Rooms Section */}
           <div className="mb-4">
             <h2 className="text-lg font-semibold mb-2">Rooms in New Space</h2>
             {formData.rooms.map((room, roomIndex) => (
@@ -375,7 +357,6 @@
                   />
                 </div>
 
-                {/* Photo Upload for Room */}
                 <div className="mb-2">
                   <label className="block text-sm font-medium">Upload Room Photo</label>
                   <input
@@ -387,12 +368,10 @@
                   {room.photo && <img src={room.photo} alt="Room" className="mt-2 w-full h-40 object-cover rounded" />}
                 </div>
 
-                {/* Estimated Materials Display */}
                 <div className="mb-2 text-sm">
                   Estimated Materials: {room.estimatedMaterials.boxes} boxes, {room.estimatedMaterials.bubbleWrapFeet} ft bubble wrap, {room.estimatedMaterials.paperPadBoxes} paper pad boxes, {room.estimatedMaterials.dishPacks} dish packs
                 </div>
 
-                {/* Furniture Items for this Room */}
                 <h3 className="text-md font-medium mb-1">Furniture Items</h3>
                 {room.items.map((item, itemIndex) => (
                   <div key={itemIndex} className="mb-2 p-2 border rounded">
@@ -444,7 +423,6 @@
             </button>
           </div>
 
-          {/* Estimate Inputs */}
           <div className="mb-4">
             <h2 className="text-lg font-semibold">Estimate Details</h2>
             <div className="grid grid-cols-2 gap-2">
@@ -527,7 +505,6 @@
             </label>
           </div>
 
-          {/* Room Visualization */}
           <div className="mb-4">
             <h2 className="text-lg font-semibold">Room Visualization</h2>
             <select
@@ -545,7 +522,6 @@
             <p className="text-sm text-gray-600">Preview of items in selected room (colored rectangles).</p>
           </div>
 
-          {/* Estimate and Actions */}
           <div className="mb-4">
             <h2 className="text-lg font-semibold">Estimate: ${calculateEstimate().low} - ${calculateEstimate().high}</h2>
             <div className="flex gap-2">
