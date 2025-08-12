@@ -74,6 +74,7 @@
       const [selectedRoomIndex, setSelectedRoomIndex] = useState(0);
       const [model, setModel] = useState(null);
       const [loadingModel, setLoadingModel] = useState(true);
+      const [itemCounter, setItemCounter] = useState(1); // For unique item IDs
 
       useEffect(() => {
         cocoSsd.load().then(loadedModel => {
@@ -119,8 +120,9 @@
 
       const addItemToRoom = (roomIndex) => {
         const newRooms = [...formData.rooms];
-        newRooms[roomIndex].items.push({ name: '', width: '', length: '', height: '', packingItem: false });
+        newRooms[roomIndex].items.push({ id: `Item-${itemCounter}`, name: '', width: '', length: '', height: '', packingItem: false });
         setFormData({ ...formData, rooms: newRooms });
+        setItemCounter(itemCounter + 1);
       };
 
       const removeItemFromRoom = (roomIndex, itemIndex) => {
@@ -146,6 +148,7 @@
         newRooms[roomIndex].photos.splice(photoIndex, 1);
         URL.revokeObjectURL(photoUrl);
         newRooms[roomIndex].estimatedMaterials = { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 };
+        newRooms[roomIndex].items = newRooms[roomIndex].items.filter(item => !item.name.startsWith('Detected')); // Remove detected items
         newRooms[roomIndex].photos.forEach(photoUrl => analyzePhoto(photoUrl, roomIndex, true));
         setFormData({ ...formData, rooms: newRooms });
       };
@@ -186,16 +189,17 @@
             newRooms[roomIndex].estimatedMaterials.dishPacks += dishPacks;
           } else {
             newRooms[roomIndex].estimatedMaterials = { boxes, bubbleWrapFeet, paperPadBoxes, dishPacks };
-            // Add detected packing items
             if (dishCount > 0) {
-              newRooms[roomIndex].items.push({ name: `Detected Dishes (${dishCount})`, width: '', length: '', height: '', packingItem: true });
+              newRooms[roomIndex].items.push({ id: `Item-${itemCounter}`, name: `Detected Dishes (${dishCount})`, width: '', length: '', height: '', packingItem: true });
+              setItemCounter(itemCounter + 1);
             }
             if (bookCount > 0) {
-              newRooms[roomIndex].items.push({ name: `Detected Books (${bookCount})`, width: '', length: '', height: '', packingItem: true });
+              newRooms[roomIndex].items.push({ id: `Item-${itemCounter}`, name: `Detected Books (${bookCount})`, width: '', length: '', height: '', packingItem: true });
+              setItemCounter(itemCounter + 1);
             }
-            // Add detected furniture items
             Object.entries(furnitureCounts).forEach(([className, count]) => {
-              newRooms[roomIndex].items.push({ name: `Detected ${className.charAt(0).toUpperCase() + className.slice(1)} (${count})`, width: '', length: '', height: '', packingItem: false });
+              newRooms[roomIndex].items.push({ id: `Item-${itemCounter}`, name: `Detected ${className.charAt(0).toUpperCase() + className.slice(1)} (${count})`, width: '', length: '', height: '', packingItem: false });
+              setItemCounter(itemCounter + 1);
             });
           }
           setFormData({ ...formData, rooms: newRooms });
@@ -248,7 +252,7 @@
           doc.text(`${room.name} (${room.width}x${room.length} ft):`, 10, yPos);
           yPos += 10;
           room.items.forEach((item, i) => {
-            doc.text(`  - ${item.name}: ${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'} (${item.packingItem ? 'Packing' : 'Furniture'})`, 10, yPos);
+            doc.text(`  - ${item.id}: ${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'}, ${item.packingItem ? 'Packing' : 'Furniture'})`, 10, yPos);
             yPos += 10;
           });
           const mat = room.estimatedMaterials;
@@ -263,7 +267,7 @@
         const { low, high } = calculateEstimate();
         const headers = ['Client Name', 'Number of Movers', 'Labor Hours Low', 'Labor Hours High', 'Number of Vehicles', 'Mileage (miles)', 'Packing Service', 'Materials Cost', 'Total Low', 'Total High', 'Rooms'];
         const roomsStr = formData.rooms.map(room => 
-          `${room.name} (${room.width}x${room.length}): Items - ${room.items.map(item => `${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'}, ${item.packingItem ? 'Packing' : 'Furniture'})`).join('; ')}; Materials - Boxes: ${room.estimatedMaterials.boxes + room.overrideMaterials.boxes}, Bubble: ${room.estimatedMaterials.bubbleWrapFeet + room.overrideMaterials.bubbleWrapFeet}ft, Paper Pads: ${room.estimatedMaterials.paperPadBoxes + room.overrideMaterials.paperPadBoxes}, Dish Packs: ${room.estimatedMaterials.dishPacks + room.overrideMaterials.dishPacks}`
+          `${room.name} (${room.width}x${room.length}): Items - ${room.items.map(item => `${item.id}: ${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'}, ${item.packingItem ? 'Packing' : 'Furniture'})`).join('; ')}; Materials - Boxes: ${room.estimatedMaterials.boxes + room.overrideMaterials.boxes}, Bubble: ${room.estimatedMaterials.bubbleWrapFeet + room.overrideMaterials.bubbleWrapFeet}ft, Paper Pads: ${room.estimatedMaterials.paperPadBoxes + room.overrideMaterials.paperPadBoxes}, Dish Packs: ${room.estimatedMaterials.dishPacks + room.overrideMaterials.dishPacks}`
         ).join(' | ');
         const row = [
           formData.clientName,
@@ -304,13 +308,13 @@
         ctx.strokeRect(0, 0, roomWidth, roomLength);
 
         room.items.forEach((item, i) => {
-          if (item.packingItem) return; // Skip packing items for visualization
+          if (item.packingItem) return;
           const width = parseFloat(item.width) * scale || 10;
           const length = parseFloat(item.length) * scale || 10;
           ctx.fillStyle = `hsl(${i * 60}, 50%, 50%)`;
           ctx.fillRect(10 + i * 20, 10 + i * 20, width, length);
           ctx.fillStyle = 'white';
-          ctx.fillText(item.name, 12 + i * 20, 20 + i * 20);
+          ctx.fillText(`${item.id}: ${item.name}`, 12 + i * 20, 20 + i * 20);
         });
       }, [formData.rooms, selectedRoomIndex]);
 
@@ -490,14 +494,20 @@
                 {room.items.map((item, itemIndex) => (
                   <div key={itemIndex} className="mb-2 p-2 border rounded flex items-center gap-2">
                     <div className="flex-1">
-                      <input
-                        type="text"
-                        placeholder="Item name (required)"
-                        value={item.name}
-                        onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'name')}
-                        className="w-full p-1 mb-1 border rounded"
-                        required
-                      />
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-medium">{item.id}</span>
+                        <input
+                          type="text"
+                          placeholder="Item name (e.g., Sofa, Dishes)"
+                          value={item.name}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'name')}
+                          className="w-full p-1 border rounded"
+                          required
+                        />
+                      </div>
+                      {item.name.startsWith('Detected') && (
+                        <p className="text-xs text-gray-500">Auto-detected item (edit name if needed)</p>
+                      )}
                       <div className="flex gap-2">
                         <input
                           type="number"
