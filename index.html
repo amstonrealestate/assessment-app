@@ -29,7 +29,7 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+    const { useState, useEffect, useRef, useCallback } = React;
     const { jsPDF } = window.jspdf;
 
     function App() {
@@ -93,7 +93,7 @@
           setFormData({ ...formData, rooms: newRooms });
         } else if (roomIndex !== null && itemIndex !== null && field) {
           const newRooms = [...formData.rooms];
-          newRooms[roomIndex].items[itemIndex][field] = e.target.value;
+          newRooms[roomIndex].items[itemIndex][field] = field === 'packingItem' ? e.target.checked : e.target.value;
           setFormData({ ...formData, rooms: newRooms });
         } else {
           setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -119,11 +119,17 @@
 
       const addItemToRoom = (roomIndex) => {
         const newRooms = [...formData.rooms];
-        newRooms[roomIndex].items.push({ name: '', width: '', length: '', height: '' });
+        newRooms[roomIndex].items.push({ name: '', width: '', length: '', height: '', packingItem: false });
         setFormData({ ...formData, rooms: newRooms });
       };
 
-      const handlePhotoUpload = (e, roomIndex) => {
+      const removeItemFromRoom = (roomIndex, itemIndex) => {
+        const newRooms = [...formData.rooms];
+        newRooms[roomIndex].items.splice(itemIndex, 1);
+        setFormData({ ...formData, rooms: newRooms });
+      };
+
+      const handlePhotoUpload = useCallback((e, roomIndex) => {
         const file = e.target.files[0];
         if (file) {
           const photoUrl = URL.createObjectURL(file);
@@ -132,14 +138,15 @@
           setFormData({ ...formData, rooms: newRooms });
           setTimeout(() => analyzePhoto(photoUrl, roomIndex), 1000);
         }
-      };
+      }, [formData.rooms, model, loadingModel]);
 
       const removePhoto = (roomIndex, photoIndex) => {
         const newRooms = [...formData.rooms];
+        const photoUrl = newRooms[roomIndex].photos[photoIndex];
         newRooms[roomIndex].photos.splice(photoIndex, 1);
-        // Re-calculate estimated materials by re-analyzing remaining photos
+        URL.revokeObjectURL(photoUrl);
         newRooms[roomIndex].estimatedMaterials = { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 };
-        newRooms[roomIndex].photos.forEach(photoUrl => analyzePhoto(photoUrl, roomIndex, true)); // Aggregate mode
+        newRooms[roomIndex].photos.forEach(photoUrl => analyzePhoto(photoUrl, roomIndex, true));
         setFormData({ ...formData, rooms: newRooms });
       };
 
@@ -154,18 +161,22 @@
           const predictions = await model.detect(img);
           let dishCount = 0;
           let bookCount = 0;
+          let furnitureCounts = {};
+
           predictions.forEach(pred => {
             if (['cup', 'bowl', 'bottle', 'wine glass', 'fork', 'knife', 'spoon'].includes(pred.class)) {
               dishCount++;
             } else if (pred.class === 'book') {
               bookCount++;
+            } else if (['bed', 'chair', 'couch', 'dining table', 'potted plant', 'tv'].includes(pred.class)) {
+              furnitureCounts[pred.class] = (furnitureCounts[pred.class] || 0) + 1;
             }
           });
 
           const dishPacks = Math.ceil(dishCount / 20);
           const paperPadBoxes = Math.ceil((dishCount * 4) / 25);
           const bubbleWrapFeet = dishCount * 2;
-          const boxes = Math.ceil(dishCount / 20) + Math.ceil(bookCount / 30); // Added for books: ~30 books per box
+          const boxes = Math.ceil(dishCount / 20) + Math.ceil(bookCount / 30);
 
           const newRooms = [...formData.rooms];
           if (aggregate) {
@@ -175,10 +186,24 @@
             newRooms[roomIndex].estimatedMaterials.dishPacks += dishPacks;
           } else {
             newRooms[roomIndex].estimatedMaterials = { boxes, bubbleWrapFeet, paperPadBoxes, dishPacks };
+            // Add detected packing items
+            if (dishCount > 0) {
+              newRooms[roomIndex].items.push({ name: `Detected Dishes (${dishCount})`, width: '', length: '', height: '', packingItem: true });
+            }
+            if (bookCount > 0) {
+              newRooms[roomIndex].items.push({ name: `Detected Books (${bookCount})`, width: '', length: '', height: '', packingItem: true });
+            }
+            // Add detected furniture items
+            Object.entries(furnitureCounts).forEach(([className, count]) => {
+              newRooms[roomIndex].items.push({ name: `Detected ${className.charAt(0).toUpperCase() + className.slice(1)} (${count})`, width: '', length: '', height: '', packingItem: false });
+            });
           }
           setFormData({ ...formData, rooms: newRooms });
         } catch (err) {
           console.error('Photo analysis failed:', err);
+          alert('Failed to analyze photo. Try another image or use manual overrides.');
+        } finally {
+          URL.revokeObjectURL(photoUrl);
         }
       };
 
@@ -223,7 +248,7 @@
           doc.text(`${room.name} (${room.width}x${room.length} ft):`, 10, yPos);
           yPos += 10;
           room.items.forEach((item, i) => {
-            doc.text(`  - ${item.name}: ${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'}`, 10, yPos);
+            doc.text(`  - ${item.name}: ${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'} (${item.packingItem ? 'Packing' : 'Furniture'})`, 10, yPos);
             yPos += 10;
           });
           const mat = room.estimatedMaterials;
@@ -238,7 +263,7 @@
         const { low, high } = calculateEstimate();
         const headers = ['Client Name', 'Number of Movers', 'Labor Hours Low', 'Labor Hours High', 'Number of Vehicles', 'Mileage (miles)', 'Packing Service', 'Materials Cost', 'Total Low', 'Total High', 'Rooms'];
         const roomsStr = formData.rooms.map(room => 
-          `${room.name} (${room.width}x${room.length}): Items - ${room.items.map(item => `${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'})`).join('; ')}; Materials - Boxes: ${room.estimatedMaterials.boxes + room.overrideMaterials.boxes}, Bubble: ${room.estimatedMaterials.bubbleWrapFeet + room.overrideMaterials.bubbleWrapFeet}ft, Paper Pads: ${room.estimatedMaterials.paperPadBoxes + room.overrideMaterials.paperPadBoxes}, Dish Packs: ${room.estimatedMaterials.dishPacks + room.overrideMaterials.dishPacks}`
+          `${room.name} (${room.width}x${room.length}): Items - ${room.items.map(item => `${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'}, ${item.packingItem ? 'Packing' : 'Furniture'})`).join('; ')}; Materials - Boxes: ${room.estimatedMaterials.boxes + room.overrideMaterials.boxes}, Bubble: ${room.estimatedMaterials.bubbleWrapFeet + room.overrideMaterials.bubbleWrapFeet}ft, Paper Pads: ${room.estimatedMaterials.paperPadBoxes + room.overrideMaterials.paperPadBoxes}, Dish Packs: ${room.estimatedMaterials.dishPacks + room.overrideMaterials.dishPacks}`
         ).join(' | ');
         const row = [
           formData.clientName,
@@ -279,12 +304,13 @@
         ctx.strokeRect(0, 0, roomWidth, roomLength);
 
         room.items.forEach((item, i) => {
+          if (item.packingItem) return; // Skip packing items for visualization
           const width = parseFloat(item.width) * scale || 10;
           const length = parseFloat(item.length) * scale || 10;
           ctx.fillStyle = `hsl(${i * 60}, 50%, 50%)`;
           ctx.fillRect(10 + i * 20, 10 + i * 20, width, length);
           ctx.fillStyle = 'white';
-          ctx.fillText(item.name || `Item ${i + 1}`, 12 + i * 20, 20 + i * 20);
+          ctx.fillText(item.name, 12 + i * 20, 20 + i * 20);
         });
       }, [formData.rooms, selectedRoomIndex]);
 
@@ -348,6 +374,7 @@
               onChange={handleInputChange}
               className="w-full p-2 border rounded"
               placeholder="Enter client name"
+              required
             />
           </div>
 
@@ -362,6 +389,7 @@
                   onChange={(e) => handleInputChange(e, roomIndex)}
                   className="w-full p-2 border rounded mb-2"
                   placeholder="Room Name (e.g., Living Room)"
+                  required
                 />
                 <div className="flex gap-2 mb-2">
                   <input
@@ -458,39 +486,57 @@
                   </div>
                 </div>
 
-                <h3 className="text-md font-medium mb-1">Furniture Items</h3>
+                <h3 className="text-md font-medium mb-1">Items</h3>
                 {room.items.map((item, itemIndex) => (
-                  <div key={itemIndex} className="mb-2 p-2 border rounded">
-                    <input
-                      type="text"
-                      placeholder="Item name"
-                      value={item.name}
-                      onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'name')}
-                      className="w-full p-1 mb-1 border rounded"
-                    />
-                    <div className="flex gap-2">
+                  <div key={itemIndex} className="mb-2 p-2 border rounded flex items-center gap-2">
+                    <div className="flex-1">
                       <input
-                        type="number"
-                        placeholder="Width (ft) - optional"
-                        value={item.width}
-                        onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'width')}
-                        className="w-1/3 p-1 border rounded"
+                        type="text"
+                        placeholder="Item name (required)"
+                        value={item.name}
+                        onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'name')}
+                        className="w-full p-1 mb-1 border rounded"
+                        required
                       />
-                      <input
-                        type="number"
-                        placeholder="Length (ft) - optional"
-                        value={item.length}
-                        onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'length')}
-                        className="w-1/3 p-1 border rounded"
-                      />
-                      <input
-                        type="number"
-                        placeholder="Height (ft) - optional"
-                        value={item.height}
-                        onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'height')}
-                        className="w-1/3 p-1 border rounded"
-                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          placeholder="Width (ft) - optional"
+                          value={item.width}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'width')}
+                          className="w-1/3 p-1 border rounded"
+                        />
+                        <input
+                          type="number"
+                          placeholder="Length (ft) - optional"
+                          value={item.length}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'length')}
+                          className="w-1/3 p-1 border rounded"
+                        />
+                        <input
+                          type="number"
+                          placeholder="Height (ft) - optional"
+                          value={item.height}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'height')}
+                          className="w-1/3 p-1 border rounded"
+                        />
+                      </div>
+                      <label className="flex items-center mt-1 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={item.packingItem}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'packingItem')}
+                          className="mr-2"
+                        />
+                        Packing Item (e.g., dishes, books)
+                      </label>
                     </div>
+                    <button
+                      onClick={() => removeItemFromRoom(roomIndex, itemIndex)}
+                      className="bg-red-500 text-white px-2 py-1 rounded text-sm"
+                    >
+                      Remove
+                    </button>
                   </div>
                 ))}
                 <button
@@ -605,7 +651,7 @@
               ))}
             </select>
             <canvas ref={canvasRef} width="300" height="300" className="w-full"></canvas>
-            <p className="text-sm text-gray-600">Preview of items in selected room (colored rectangles).</p>
+            <p className="text-sm text-gray-600">Preview of furniture items in selected room (colored rectangles). Packing items (e.g., dishes) are excluded.</p>
           </div>
 
           <div className="mb-4">
