@@ -56,7 +56,8 @@
             name: 'Living Room',
             width: '',
             length: '',
-            items: [],
+            furnitureItems: [],
+            packingItems: [],
             photos: [],
             estimatedMaterials: { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 },
             overrideMaterials: { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 },
@@ -74,7 +75,7 @@
       const [selectedRoomIndex, setSelectedRoomIndex] = useState(0);
       const [model, setModel] = useState(null);
       const [loadingModel, setLoadingModel] = useState(true);
-      const [itemCounter, setItemCounter] = useState(1); // For unique item IDs
+      const [itemCounter, setItemCounter] = useState(1);
 
       useEffect(() => {
         cocoSsd.load().then(loadedModel => {
@@ -87,14 +88,15 @@
         localStorage.setItem('rates', JSON.stringify(rates));
       }, [rates]);
 
-      const handleInputChange = (e, roomIndex = null, itemIndex = null, field = null) => {
+      const handleInputChange = (e, roomIndex = null, itemIndex = null, field = null, type = 'furniture') => {
         if (roomIndex !== null && itemIndex === null) {
           const newRooms = [...formData.rooms];
           newRooms[roomIndex][e.target.name] = e.target.value;
           setFormData({ ...formData, rooms: newRooms });
         } else if (roomIndex !== null && itemIndex !== null && field) {
           const newRooms = [...formData.rooms];
-          newRooms[roomIndex].items[itemIndex][field] = field === 'packingItem' ? e.target.checked : e.target.value;
+          const itemList = type === 'furniture' ? newRooms[roomIndex].furnitureItems : newRooms[roomIndex].packingItems;
+          itemList[itemIndex][field] = field === 'packingItem' ? e.target.checked : e.target.value;
           setFormData({ ...formData, rooms: newRooms });
         } else {
           setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -114,46 +116,77 @@
       const addRoom = () => {
         setFormData({
           ...formData,
-          rooms: [...formData.rooms, { name: '', width: '', length: '', items: [], photos: [], estimatedMaterials: { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 }, overrideMaterials: { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 } }],
+          rooms: [...formData.rooms, { name: '', width: '', length: '', furnitureItems: [], packingItems: [], photos: [], estimatedMaterials: { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 }, overrideMaterials: { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 } }],
         });
       };
 
-      const addItemToRoom = (roomIndex) => {
+      const addFurnitureItem = (roomIndex) => {
         const newRooms = [...formData.rooms];
-        newRooms[roomIndex].items.push({ id: `Item-${itemCounter}`, name: '', width: '', length: '', height: '', packingItem: false });
+        newRooms[roomIndex].furnitureItems.push({ id: `Item-${itemCounter}`, name: '', width: '', length: '', height: '', packingItem: false, photo: null });
         setFormData({ ...formData, rooms: newRooms });
         setItemCounter(itemCounter + 1);
       };
 
-      const removeItemFromRoom = (roomIndex, itemIndex) => {
+      const addPackingItem = (roomIndex) => {
         const newRooms = [...formData.rooms];
-        newRooms[roomIndex].items.splice(itemIndex, 1);
+        newRooms[roomIndex].packingItems.push({ id: `Item-${itemCounter}`, name: '', width: '', length: '', height: '', packingItem: true });
+        setFormData({ ...formData, rooms: newRooms });
+        setItemCounter(itemCounter + 1);
+      };
+
+      const removeItem = (roomIndex, itemIndex, type = 'furniture') => {
+        const newRooms = [...formData.rooms];
+        const itemList = type === 'furniture' ? newRooms[roomIndex].furnitureItems : newRooms[roomIndex].packingItems;
+        const item = itemList[itemIndex];
+        if (item.photo) URL.revokeObjectURL(item.photo);
+        itemList.splice(itemIndex, 1);
         setFormData({ ...formData, rooms: newRooms });
       };
 
-      const handlePhotoUpload = useCallback((e, roomIndex) => {
+      const handleRoomPhotoUpload = useCallback((e, roomIndex) => {
         const file = e.target.files[0];
         if (file) {
           const photoUrl = URL.createObjectURL(file);
           const newRooms = [...formData.rooms];
           newRooms[roomIndex].photos.push(photoUrl);
           setFormData({ ...formData, rooms: newRooms });
-          setTimeout(() => analyzePhoto(photoUrl, roomIndex), 1000);
+          setTimeout(() => analyzeRoomPhoto(photoUrl, roomIndex), 1000);
         }
       }, [formData.rooms, model, loadingModel]);
 
-      const removePhoto = (roomIndex, photoIndex) => {
+      const handleFurniturePhotoUpload = useCallback((e, roomIndex) => {
+        const file = e.target.files[0];
+        if (file) {
+          const photoUrl = URL.createObjectURL(file);
+          const newRooms = [...formData.rooms];
+          const newItem = { id: `Item-${itemCounter}`, name: '', width: '', length: '', height: '', packingItem: false, photo: photoUrl };
+          newRooms[roomIndex].furnitureItems.push(newItem);
+          setFormData({ ...formData, rooms: newRooms });
+          setItemCounter(itemCounter + 1);
+          setTimeout(() => analyzeFurniturePhoto(photoUrl, roomIndex, newRooms[roomIndex].furnitureItems.length - 1), 1000);
+        }
+      }, [formData.rooms, model, loadingModel, itemCounter]);
+
+      const removeRoomPhoto = (roomIndex, photoIndex) => {
         const newRooms = [...formData.rooms];
         const photoUrl = newRooms[roomIndex].photos[photoIndex];
         newRooms[roomIndex].photos.splice(photoIndex, 1);
         URL.revokeObjectURL(photoUrl);
         newRooms[roomIndex].estimatedMaterials = { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 };
-        newRooms[roomIndex].items = newRooms[roomIndex].items.filter(item => !item.name.startsWith('Detected')); // Remove detected items
-        newRooms[roomIndex].photos.forEach(photoUrl => analyzePhoto(photoUrl, roomIndex, true));
+        newRooms[roomIndex].packingItems = [];
+        newRooms[roomIndex].photos.forEach(photoUrl => analyzeRoomPhoto(photoUrl, roomIndex, true));
         setFormData({ ...formData, rooms: newRooms });
       };
 
-      const analyzePhoto = async (photoUrl, roomIndex, aggregate = false) => {
+      const removeFurniturePhoto = (roomIndex, itemIndex) => {
+        const newRooms = [...formData.rooms];
+        const item = newRooms[roomIndex].furnitureItems[itemIndex];
+        if (item.photo) URL.revokeObjectURL(item.photo);
+        newRooms[roomIndex].furnitureItems[itemIndex].photo = null;
+        setFormData({ ...formData, rooms: newRooms });
+      };
+
+      const analyzeRoomPhoto = async (photoUrl, roomIndex, aggregate = false) => {
         if (loadingModel || !model) return;
 
         try {
@@ -164,15 +197,12 @@
           const predictions = await model.detect(img);
           let dishCount = 0;
           let bookCount = 0;
-          let furnitureCounts = {};
 
           predictions.forEach(pred => {
             if (['cup', 'bowl', 'bottle', 'wine glass', 'fork', 'knife', 'spoon'].includes(pred.class)) {
               dishCount++;
             } else if (pred.class === 'book') {
               bookCount++;
-            } else if (['bed', 'chair', 'couch', 'dining table', 'potted plant', 'tv'].includes(pred.class)) {
-              furnitureCounts[pred.class] = (furnitureCounts[pred.class] || 0) + 1;
             }
           });
 
@@ -189,30 +219,69 @@
             newRooms[roomIndex].estimatedMaterials.dishPacks += dishPacks;
           } else {
             newRooms[roomIndex].estimatedMaterials = { boxes, bubbleWrapFeet, paperPadBoxes, dishPacks };
+          }
+
+          if (!aggregate) {
             if (dishCount > 0) {
-              newRooms[roomIndex].items.push({ id: `Item-${itemCounter}`, name: `Detected Dishes (${dishCount})`, width: '', length: '', height: '', packingItem: true });
+              newRooms[roomIndex].packingItems.push({ id: `Item-${itemCounter}`, name: `Detected Dishes (${dishCount})`, width: '', length: '', height: '', packingItem: true });
               setItemCounter(itemCounter + 1);
             }
             if (bookCount > 0) {
-              newRooms[roomIndex].items.push({ id: `Item-${itemCounter}`, name: `Detected Books (${bookCount})`, width: '', length: '', height: '', packingItem: true });
+              newRooms[roomIndex].packingItems.push({ id: `Item-${itemCounter}`, name: `Detected Books (${bookCount})`, width: '', length: '', height: '', packingItem: true });
               setItemCounter(itemCounter + 1);
             }
-            Object.entries(furnitureCounts).forEach(([className, count]) => {
-              newRooms[roomIndex].items.push({ id: `Item-${itemCounter}`, name: `Detected ${className.charAt(0).toUpperCase() + className.slice(1)} (${count})`, width: '', length: '', height: '', packingItem: false });
-              setItemCounter(itemCounter + 1);
-            });
           }
           setFormData({ ...formData, rooms: newRooms });
         } catch (err) {
           console.error('Photo analysis failed:', err);
-          alert('Failed to analyze photo. Try another image or use manual overrides.');
+          alert('Failed to analyze room photo. Try another image or use manual overrides.');
         } finally {
           URL.revokeObjectURL(photoUrl);
         }
       };
 
+      const analyzeFurniturePhoto = async (photoUrl, roomIndex, itemIndex) => {
+        if (loadingModel || !model) return;
+
+        try {
+          const img = new Image();
+          img.src = photoUrl;
+          await new Promise(resolve => { img.onload = resolve; });
+
+          const predictions = await model.detect(img);
+          let furnitureType = 'Item';
+          let dimensions = { width: '', length: '', height: '' };
+
+          const furnitureClasses = ['bed', 'chair', 'couch', 'dining table', 'potted plant', 'tv'];
+          const detected = predictions.find(pred => furnitureClasses.includes(pred.class));
+          if (detected) {
+            furnitureType = detected.class.charAt(0).toUpperCase() + detected.class.slice(1);
+            // Estimate dimensions based on typical sizes
+            switch (detected.class) {
+              case 'bed': dimensions = { width: '6', length: '7', height: '2' }; break;
+              case 'chair': dimensions = { width: '3', length: '3', height: '3' }; break;
+              case 'couch': dimensions = { width: '7', length: '3', height: '3' }; break;
+              case 'dining table': dimensions = { width: '6', length: '4', height: '3' }; break;
+              case 'potted plant': dimensions = { width: '2', length: '2', height: '3' }; break;
+              case 'tv': dimensions = { width: '4', length: '2', height: '3' }; break;
+              default: dimensions = { width: '', length: '', height: '' };
+            }
+          }
+
+          const newRooms = [...formData.rooms];
+          newRooms[roomIndex].furnitureItems[itemIndex].name = `Detected ${furnitureType}`;
+          newRooms[roomIndex].furnitureItems[itemIndex].width = dimensions.width;
+          newRooms[roomIndex].furnitureItems[itemIndex].length = dimensions.length;
+          newRooms[roomIndex].furnitureItems[itemIndex].height = dimensions.height;
+          setFormData({ ...formData, rooms: newRooms });
+        } catch (err) {
+          console.error('Furniture photo analysis failed:', err);
+          alert('Failed to analyze furniture photo. Edit item name and dimensions manually.');
+        }
+      };
+
       const calculateEstimate = () => {
-        const totalItems = formData.rooms.reduce((sum, room) => sum + room.items.length, 0);
+        const totalItems = formData.rooms.reduce((sum, room) => sum + room.furnitureItems.length + room.packingItems.length, 0);
         let totalMaterialsCost = rates.materialsCost + (parseFloat(formData.materials) || 0);
 
         formData.rooms.forEach(room => {
@@ -246,13 +315,21 @@
         doc.text(`Mileage (miles): ${formData.mileage}`, 10, 60);
         doc.text(`Packing Service: ${formData.packing ? 'Yes' : 'No'}`, 10, 70);
         doc.text(`Additional Materials Cost: $${formData.materials}`, 10, 80);
-        doc.text('Rooms and Items:', 10, 90);
+        doc.text('Rooms:', 10, 90);
         let yPos = 100;
         formData.rooms.forEach((room, rIdx) => {
           doc.text(`${room.name} (${room.width}x${room.length} ft):`, 10, yPos);
           yPos += 10;
-          room.items.forEach((item, i) => {
-            doc.text(`  - ${item.id}: ${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'}, ${item.packingItem ? 'Packing' : 'Furniture'})`, 10, yPos);
+          doc.text('  Furniture Items:', 10, yPos);
+          yPos += 10;
+          room.furnitureItems.forEach((item, i) => {
+            doc.text(`    - ${item.id}: ${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'})`, 10, yPos);
+            yPos += 10;
+          });
+          doc.text('  Packing Items:', 10, yPos);
+          yPos += 10;
+          room.packingItems.forEach((item, i) => {
+            doc.text(`    - ${item.id}: ${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'})`, 10, yPos);
             yPos += 10;
           });
           const mat = room.estimatedMaterials;
@@ -267,7 +344,7 @@
         const { low, high } = calculateEstimate();
         const headers = ['Client Name', 'Number of Movers', 'Labor Hours Low', 'Labor Hours High', 'Number of Vehicles', 'Mileage (miles)', 'Packing Service', 'Materials Cost', 'Total Low', 'Total High', 'Rooms'];
         const roomsStr = formData.rooms.map(room => 
-          `${room.name} (${room.width}x${room.length}): Items - ${room.items.map(item => `${item.id}: ${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'}, ${item.packingItem ? 'Packing' : 'Furniture'})`).join('; ')}; Materials - Boxes: ${room.estimatedMaterials.boxes + room.overrideMaterials.boxes}, Bubble: ${room.estimatedMaterials.bubbleWrapFeet + room.overrideMaterials.bubbleWrapFeet}ft, Paper Pads: ${room.estimatedMaterials.paperPadBoxes + room.overrideMaterials.paperPadBoxes}, Dish Packs: ${room.estimatedMaterials.dishPacks + room.overrideMaterials.dishPacks}`
+          `${room.name} (${room.width}x${room.length}): Furniture - ${room.furnitureItems.map(item => `${item.id}: ${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'})`).join('; ')}; Packing - ${room.packingItems.map(item => `${item.id}: ${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'})`).join('; ')}; Materials - Boxes: ${room.estimatedMaterials.boxes + room.overrideMaterials.boxes}, Bubble: ${room.estimatedMaterials.bubbleWrapFeet + room.overrideMaterials.bubbleWrapFeet}ft, Paper Pads: ${room.estimatedMaterials.paperPadBoxes + room.overrideMaterials.paperPadBoxes}, Dish Packs: ${room.estimatedMaterials.dishPacks + room.overrideMaterials.dishPacks}`
         ).join(' | ');
         const row = [
           formData.clientName,
@@ -307,7 +384,7 @@
         ctx.strokeStyle = 'black';
         ctx.strokeRect(0, 0, roomWidth, roomLength);
 
-        room.items.forEach((item, i) => {
+        room.furnitureItems.forEach((item, i) => {
           if (item.packingItem) return;
           const width = parseFloat(item.width) * scale || 10;
           const length = parseFloat(item.length) * scale || 10;
@@ -415,11 +492,11 @@
                 </div>
 
                 <div className="mb-2">
-                  <label className="block text-sm font-medium">Upload Room Photo</label>
+                  <label className="block text-sm font-medium">Upload Room Photo (for packing items like dishes)</label>
                   <input
                     type="file"
                     accept="image/*"
-                    onChange={(e) => handlePhotoUpload(e, roomIndex)}
+                    onChange={(e) => handleRoomPhotoUpload(e, roomIndex)}
                     className="w-full p-2 border rounded"
                   />
                 </div>
@@ -428,9 +505,9 @@
                   <div className="grid grid-cols-3 gap-2 mb-2">
                     {room.photos.map((photoUrl, photoIndex) => (
                       <div key={photoIndex} className="relative">
-                        <img src={photoUrl} alt={`Photo ${photoIndex + 1}`} className="w-full h-20 object-cover rounded" />
+                        <img src={photoUrl} alt={`Room Photo ${photoIndex + 1}`} className="w-full h-20 object-cover rounded" />
                         <button
-                          onClick={() => removePhoto(roomIndex, photoIndex)}
+                          onClick={() => removeRoomPhoto(roomIndex, photoIndex)}
                           className="absolute top-0 right-0 bg-red-500 text-white px-1 py-0.5 text-xs rounded"
                         >
                           Remove
@@ -490,59 +567,79 @@
                   </div>
                 </div>
 
-                <h3 className="text-md font-medium mb-1">Items</h3>
-                {room.items.map((item, itemIndex) => (
+                <h3 className="text-md font-medium mb-1">Furniture Items (e.g., sofas, beds)</h3>
+                {room.furnitureItems.map((item, itemIndex) => (
                   <div key={itemIndex} className="mb-2 p-2 border rounded flex items-center gap-2">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-sm font-medium">{item.id}</span>
                         <input
                           type="text"
-                          placeholder="Item name (e.g., Sofa, Dishes)"
+                          placeholder="Item name (e.g., Sofa, Bed)"
                           value={item.name}
-                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'name')}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'name', 'furniture')}
                           className="w-full p-1 border rounded"
                           required
                         />
                       </div>
                       {item.name.startsWith('Detected') && (
-                        <p className="text-xs text-gray-500">Auto-detected item (edit name if needed)</p>
+                        <p className="text-xs text-gray-500">Auto-detected item (edit name/dimensions if needed)</p>
                       )}
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 mb-1">
                         <input
                           type="number"
                           placeholder="Width (ft) - optional"
                           value={item.width}
-                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'width')}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'width', 'furniture')}
                           className="w-1/3 p-1 border rounded"
                         />
                         <input
                           type="number"
                           placeholder="Length (ft) - optional"
                           value={item.length}
-                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'length')}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'length', 'furniture')}
                           className="w-1/3 p-1 border rounded"
                         />
                         <input
                           type="number"
                           placeholder="Height (ft) - optional"
                           value={item.height}
-                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'height')}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'height', 'furniture')}
                           className="w-1/3 p-1 border rounded"
                         />
                       </div>
+                      <div className="mb-1">
+                        <label className="block text-sm font-medium">Upload Furniture Photo</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleFurniturePhotoUpload(e, roomIndex)}
+                          className="w-full p-1 border rounded"
+                        />
+                      </div>
+                      {item.photo && (
+                        <div className="relative w-20 h-20">
+                          <img src={item.photo} alt="Furniture" className="w-full h-full object-cover rounded" />
+                          <button
+                            onClick={() => removeFurniturePhoto(roomIndex, itemIndex)}
+                            className="absolute top-0 right-0 bg-red-500 text-white px-1 py-0.5 text-xs rounded"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
                       <label className="flex items-center mt-1 text-sm">
                         <input
                           type="checkbox"
                           checked={item.packingItem}
-                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'packingItem')}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'packingItem', 'furniture')}
                           className="mr-2"
                         />
-                        Packing Item (e.g., dishes, books)
+                        Move to Packing Items (e.g., small items)
                       </label>
                     </div>
                     <button
-                      onClick={() => removeItemFromRoom(roomIndex, itemIndex)}
+                      onClick={() => removeItem(roomIndex, itemIndex, 'furniture')}
                       className="bg-red-500 text-white px-2 py-1 rounded text-sm"
                     >
                       Remove
@@ -550,10 +647,44 @@
                   </div>
                 ))}
                 <button
-                  onClick={() => addItemToRoom(roomIndex)}
+                  onClick={() => addFurnitureItem(roomIndex)}
                   className="bg-blue-500 text-white px-4 py-2 rounded mt-2"
                 >
-                  Add Item to {room.name || 'this Room'}
+                  Add Furniture Item to {room.name || 'this Room'}
+                </button>
+
+                <h3 className="text-md font-medium mb-1 mt-4">Packing Items (e.g., dishes, books)</h3>
+                {room.packingItems.map((item, itemIndex) => (
+                  <div key={itemIndex} className="mb-2 p-2 border rounded flex items-center gap-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-medium">{item.id}</span>
+                        <input
+                          type="text"
+                          placeholder="Item name (e.g., Dishes, Books)"
+                          value={item.name}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'name', 'packing')}
+                          className="w-full p-1 border rounded"
+                          required
+                        />
+                      </div>
+                      {item.name.startsWith('Detected') && (
+                        <p className="text-xs text-gray-500">Auto-detected item (edit name if needed)</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => removeItem(roomIndex, itemIndex, 'packing')}
+                      className="bg-red-500 text-white px-2 py-1 rounded text-sm"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => addPackingItem(roomIndex)}
+                  className="bg-blue-500 text-white px-4 py-2 rounded mt-2"
+                >
+                  Add Packing Item to {room.name || 'this Room'}
                 </button>
               </div>
             ))}
