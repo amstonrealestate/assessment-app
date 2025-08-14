@@ -158,16 +158,26 @@
       }, [formData.rooms, model, loadingModel]);
 
       const handleFurniturePhotoUpload = useCallback((e, roomIndex) => {
-        const file = e.target.files[0];
-        if (file) {
-          const photoUrl = URL.createObjectURL(file);
-          const newRooms = [...formData.rooms];
-          const newItem = { id: `Item-${itemCounter}`, name: '', width: '', length: '', height: '', packingItem: false, photo: photoUrl };
-          newRooms[roomIndex].furnitureItems.push(newItem);
-          setFormData({ ...formData, rooms: newRooms });
-          setItemCounter(itemCounter + 1);
-          setTimeout(() => analyzeFurniturePhoto(photoUrl, roomIndex, newRooms[roomIndex].furnitureItems.length - 1), 1000);
-        }
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+
+        const newRooms = [...formData.rooms];
+        const newItems = files.map(file => ({
+          id: `Item-${itemCounter + newItems.length}`,
+          name: '',
+          width: '',
+          length: '',
+          height: '',
+          packingItem: false,
+          photo: URL.createObjectURL(file)
+        }));
+        newRooms[roomIndex].furnitureItems.push(...newItems);
+        setFormData({ ...formData, rooms: newRooms });
+        setItemCounter(itemCounter + newItems.length);
+
+        newItems.forEach((item, index) => {
+          setTimeout(() => analyzeFurniturePhoto(item.photo, roomIndex, newRooms[roomIndex].furnitureItems.length - newItems.length + index), (index + 1) * 1000);
+        });
       }, [formData.rooms, model, loadingModel, itemCounter]);
 
       const removeRoomPhoto = (roomIndex, photoIndex) => {
@@ -614,10 +624,11 @@
                         />
                       </div>
                       <div className="mb-1">
-                        <label className="block text-sm font-medium">Upload Furniture Photo</label>
+                        <label className="block text-sm font-medium">Upload Furniture Photo(s)</label>
                         <input
                           type="file"
                           accept="image/*"
+                          multiple
                           onChange={(e) => handleFurniturePhotoUpload(e, roomIndex)}
                           className="w-full p-1 border rounded"
                         />
