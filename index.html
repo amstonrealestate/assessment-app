@@ -129,6 +129,7 @@
         newRooms[roomIndex].furnitureItems.push({ id: `Item-${itemCounter}`, name: '', width: '', length: '', height: '', packingItem: false, photo: null });
         setFormData({ ...formData, rooms: newRooms });
         setItemCounter(itemCounter + 1);
+        console.log(`Manually added item: Item-${itemCounter}, New itemCounter: ${itemCounter + 1}`);
       };
 
       const addPackingItem = (roomIndex) => {
@@ -136,6 +137,7 @@
         newRooms[roomIndex].packingItems.push({ id: `Item-${itemCounter}`, name: '', width: '', length: '', height: '', packingItem: true });
         setFormData({ ...formData, rooms: newRooms });
         setItemCounter(itemCounter + 1);
+        console.log(`Manually added packing item: Item-${itemCounter}, New itemCounter: ${itemCounter + 1}`);
       };
 
       const removeItem = (roomIndex, itemIndex, type = 'furniture') => {
@@ -169,11 +171,12 @@
         const userProvidedName = itemNameInput?.value.trim() || '';
         console.log(`User-provided name for room ${roomIndex}: ${userProvidedName}`);
         console.log(`Current itemCounter before adding items: ${itemCounter}`);
+        console.log(`Current furnitureItems length for room ${roomIndex}: ${formData.rooms[roomIndex].furnitureItems.length}`);
 
         const newRooms = [...formData.rooms];
-        const startCounter = itemCounter;
+        const currentItemCount = newRooms[roomIndex].furnitureItems.length;
         const newItems = files.map((file, index) => ({
-          id: `Item-${startCounter + index}`,
+          id: `Item-${itemCounter + index}`,
           name: userProvidedName || '',
           width: '',
           length: '',
@@ -183,12 +186,14 @@
         }));
         newRooms[roomIndex].furnitureItems.push(...newItems);
         setFormData({ ...formData, rooms: [...newRooms] });
-        setItemCounter(startCounter + newItems.length);
+        setItemCounter(itemCounter + newItems.length);
         console.log(`New items added:`, newItems.map(item => item.id));
-        console.log(`Updated itemCounter: ${startCounter + newItems.length}`);
+        console.log(`Updated itemCounter: ${itemCounter + newItems.length}`);
 
         newItems.forEach((item, index) => {
-          setTimeout(() => analyzeFurniturePhoto(item.photo, roomIndex, newRooms[roomIndex].furnitureItems.length - newItems.length + index, userProvidedName), (index + 1) * 1000);
+          const itemIndex = currentItemCount + index;
+          console.log(`Scheduling analysis for item ${item.id} at index ${itemIndex}`);
+          setTimeout(() => analyzeFurniturePhoto(item.photo, roomIndex, itemIndex, userProvidedName), (index + 1) * 1000);
         });
 
         if (itemNameInput) itemNameInput.value = ''; // Clear input after upload
@@ -321,6 +326,7 @@
           newRooms[roomIndex].furnitureItems[itemIndex].length = dimensions.length;
           newRooms[roomIndex].furnitureItems[itemIndex].height = dimensions.height;
           setFormData({ ...formData, rooms: [...newRooms] });
+          console.log(`Updated item ${newRooms[roomIndex].furnitureItems[itemIndex].id}: name=${newRooms[roomIndex].furnitureItems[itemIndex].name}, dimensions=`, dimensions);
         } catch (err) {
           console.error('Furniture photo analysis failed:', err);
           const newRooms = [...formData.rooms];
