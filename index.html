@@ -168,10 +168,12 @@
         const itemNameInput = document.getElementById(`furnitureName-${roomIndex}`);
         const userProvidedName = itemNameInput?.value.trim() || '';
         console.log(`User-provided name for room ${roomIndex}: ${userProvidedName}`);
+        console.log(`Current itemCounter before adding items: ${itemCounter}`);
 
         const newRooms = [...formData.rooms];
+        const startCounter = itemCounter;
         const newItems = files.map((file, index) => ({
-          id: `Item-${itemCounter + index}`,
+          id: `Item-${startCounter + index}`,
           name: userProvidedName || '',
           width: '',
           length: '',
@@ -181,7 +183,9 @@
         }));
         newRooms[roomIndex].furnitureItems.push(...newItems);
         setFormData({ ...formData, rooms: [...newRooms] });
-        setItemCounter(itemCounter + newItems.length);
+        setItemCounter(startCounter + newItems.length);
+        console.log(`New items added:`, newItems.map(item => item.id));
+        console.log(`Updated itemCounter: ${startCounter + newItems.length}`);
 
         newItems.forEach((item, index) => {
           setTimeout(() => analyzeFurniturePhoto(item.photo, roomIndex, newRooms[roomIndex].furnitureItems.length - newItems.length + index, userProvidedName), (index + 1) * 1000);
