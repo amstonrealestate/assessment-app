@@ -81,7 +81,11 @@
         cocoSsd.load().then(loadedModel => {
           setModel(loadedModel);
           setLoadingModel(false);
-        }).catch(err => console.error('Model loading failed:', err));
+          console.log('COCO-SSD model loaded successfully');
+        }).catch(err => {
+          console.error('Model loading failed:', err);
+          alert('Failed to load detection model. Please try again later.');
+        });
       }, []);
 
       useEffect(() => {
@@ -163,10 +167,11 @@
 
         const itemNameInput = document.getElementById(`furnitureName-${roomIndex}`);
         const userProvidedName = itemNameInput?.value.trim() || '';
+        console.log(`User-provided name for room ${roomIndex}: ${userProvidedName}`);
 
         const newRooms = [...formData.rooms];
-        const newItems = files.map(file => ({
-          id: `Item-${itemCounter + newItems.length}`,
+        const newItems = files.map((file, index) => ({
+          id: `Item-${itemCounter + index}`,
           name: userProvidedName || '',
           width: '',
           length: '',
@@ -175,7 +180,7 @@
           photo: URL.createObjectURL(file)
         }));
         newRooms[roomIndex].furnitureItems.push(...newItems);
-        setFormData({ ...formData, rooms: newRooms });
+        setFormData({ ...formData, rooms: [...newRooms] });
         setItemCounter(itemCounter + newItems.length);
 
         newItems.forEach((item, index) => {
@@ -253,7 +258,7 @@
           }
           setFormData({ ...formData, rooms: newRooms });
         } catch (err) {
-          console.error('Photo analysis failed:', err);
+          console.error('Room photo analysis failed:', err);
           alert('Failed to analyze room photo. Try another image or use manual overrides.');
         } finally {
           URL.revokeObjectURL(photoUrl);
@@ -261,7 +266,10 @@
       };
 
       const analyzeFurniturePhoto = async (photoUrl, roomIndex, itemIndex, userProvidedName) => {
-        if (loadingModel || !model) return;
+        if (loadingModel || !model) {
+          console.error('Model not loaded or loading');
+          return;
+        }
 
         try {
           const img = new Image();
@@ -269,8 +277,10 @@
           await new Promise(resolve => { img.onload = resolve; });
 
           const predictions = await model.detect(img);
-          let furnitureType = userProvidedName || 'Dresser'; // Use user-provided name or default to dresser
-          let dimensions = { width: '3.5', length: '1.5', height: '3' }; // Default dresser dimensions
+          console.log(`Predictions for item ${itemIndex} in room ${roomIndex}:`, predictions);
+
+          let furnitureType = userProvidedName || 'Dresser';
+          let dimensions = { width: '3.5', length: '1.5', height: '3' };
 
           const furnitureClasses = ['bed', 'chair', 'couch', 'dining table', 'potted plant', 'tv'];
           const detected = predictions.find(pred => furnitureClasses.includes(pred.class));
@@ -286,31 +296,35 @@
               case 'tv': dimensions = { width: '4', length: '2', height: '3' }; break;
               default: dimensions = { width: '3.5', length: '1.5', height: '3' };
             }
+            console.log(`Detected furniture: ${furnitureType} with dimensions`, dimensions);
           } else if (predictions.length > 0) {
-            // Fallback to dresser if objects detected but not in furnitureClasses
             furnitureType = userProvidedName || 'Dresser';
             dimensions = { width: '3.5', length: '1.5', height: '3' };
+            console.log(`No specific furniture detected, using fallback: ${furnitureType} with dimensions`, dimensions);
           } else {
-            // No objects detected
-            furnitureType = userProvidedName || 'Unknown Item';
+            furnitureType = userProvidedName || 'Could Not Detect Item';
             dimensions = { width: '', length: '', height: '' };
-            alert(`No furniture detected in the photo for ${furnitureType}. Please edit the item name and dimensions manually.`);
+            alert(`Could not detect any furniture in the photo for ${userProvidedName || 'item'}. Please edit the item name and dimensions manually.`);
+            console.log(`No objects detected for item ${itemIndex}, set to ${furnitureType}`);
           }
 
           const newRooms = [...formData.rooms];
           newRooms[roomIndex].furnitureItems[itemIndex].name = userProvidedName ? userProvidedName : `Detected ${furnitureType}`;
+          if (furnitureType === 'Could Not Detect Item') {
+            newRooms[roomIndex].furnitureItems[itemIndex].name = furnitureType;
+          }
           newRooms[roomIndex].furnitureItems[itemIndex].width = dimensions.width;
           newRooms[roomIndex].furnitureItems[itemIndex].length = dimensions.length;
           newRooms[roomIndex].furnitureItems[itemIndex].height = dimensions.height;
-          setFormData({ ...formData, rooms: newRooms });
+          setFormData({ ...formData, rooms: [...newRooms] });
         } catch (err) {
           console.error('Furniture photo analysis failed:', err);
           const newRooms = [...formData.rooms];
-          newRooms[roomIndex].furnitureItems[itemIndex].name = userProvidedName || 'Unknown Item';
+          newRooms[roomIndex].furnitureItems[itemIndex].name = userProvidedName || 'Could Not Detect Item';
           newRooms[roomIndex].furnitureItems[itemIndex].width = '';
           newRooms[roomIndex].furnitureItems[itemIndex].length = '';
           newRooms[roomIndex].furnitureItems[itemIndex].height = '';
-          setFormData({ ...formData, rooms: newRooms });
+          setFormData({ ...formData, rooms: [...newRooms] });
           alert('Failed to analyze furniture photo. Please edit item name and dimensions manually.');
         }
       };
@@ -618,9 +632,9 @@
                           required
                         />
                       </div>
-                      {item.name.startsWith('Detected') && (
+                      {item.name.startsWith('Detected') || item.name === 'Could Not Detect Item' ? (
                         <p className="text-xs text-gray-500">Auto-detected item (edit name/dimensions if needed)</p>
-                      )}
+                      ) : null}
                       <div className="flex gap-2 mb-1">
                         <input
                           type="number"
