@@ -81,11 +81,7 @@
         cocoSsd.load().then(loadedModel => {
           setModel(loadedModel);
           setLoadingModel(false);
-          console.log('COCO-SSD model loaded successfully');
-        }).catch(err => {
-          console.error('Model loading failed:', err);
-          alert('Failed to load detection model. Please try again later.');
-        });
+        }).catch(err => console.error('Model loading failed:', err));
       }, []);
 
       useEffect(() => {
@@ -128,16 +124,14 @@
         const newRooms = [...formData.rooms];
         newRooms[roomIndex].furnitureItems.push({ id: `Item-${itemCounter}`, name: '', width: '', length: '', height: '', packingItem: false, photo: null });
         setFormData({ ...formData, rooms: newRooms });
-        setItemCounter(itemCounter + 1);
-        console.log(`Manually added item: Item-${itemCounter}, New itemCounter: ${itemCounter + 1}`);
+        // Do not increment itemCounter here to prevent premature ID increment
       };
 
       const addPackingItem = (roomIndex) => {
         const newRooms = [...formData.rooms];
         newRooms[roomIndex].packingItems.push({ id: `Item-${itemCounter}`, name: '', width: '', length: '', height: '', packingItem: true });
         setFormData({ ...formData, rooms: newRooms });
-        setItemCounter(itemCounter + 1);
-        console.log(`Manually added packing item: Item-${itemCounter}, New itemCounter: ${itemCounter + 1}`);
+        setItemCounter(itemCounter + 1); // Increment for packing items
       };
 
       const removeItem = (roomIndex, itemIndex, type = 'furniture') => {
@@ -167,17 +161,11 @@
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
 
-        const itemNameInput = document.getElementById(`furnitureName-${roomIndex}`);
-        const userProvidedName = itemNameInput?.value.trim() || '';
-        console.log(`User-provided name for room ${roomIndex}: ${userProvidedName}`);
-        console.log(`Current itemCounter before adding items: ${itemCounter}`);
-        console.log(`Current furnitureItems length for room ${roomIndex}: ${formData.rooms[roomIndex].furnitureItems.length}`);
-
         const newRooms = [...formData.rooms];
-        const currentItemCount = newRooms[roomIndex].furnitureItems.length;
+        const startCounter = itemCounter;
         const newItems = files.map((file, index) => ({
-          id: `Item-${itemCounter + index}`,
-          name: userProvidedName || '',
+          id: `Item-${startCounter + index}`,
+          name: '',
           width: '',
           length: '',
           height: '',
@@ -185,18 +173,12 @@
           photo: URL.createObjectURL(file)
         }));
         newRooms[roomIndex].furnitureItems.push(...newItems);
-        setFormData({ ...formData, rooms: [...newRooms] });
-        setItemCounter(itemCounter + newItems.length);
-        console.log(`New items added:`, newItems.map(item => item.id));
-        console.log(`Updated itemCounter: ${itemCounter + newItems.length}`);
+        setFormData({ ...formData, rooms: newRooms });
+        setItemCounter(startCounter + newItems.length);
 
         newItems.forEach((item, index) => {
-          const itemIndex = currentItemCount + index;
-          console.log(`Scheduling analysis for item ${item.id} at index ${itemIndex}`);
-          setTimeout(() => analyzeFurniturePhoto(item.photo, roomIndex, itemIndex, userProvidedName), (index + 1) * 1000);
+          setTimeout(() => analyzeFurniturePhoto(item.photo, roomIndex, newRooms[roomIndex].furnitureItems.length - newItems.length + index), (index + 1) * 1000);
         });
-
-        if (itemNameInput) itemNameInput.value = ''; // Clear input after upload
       }, [formData.rooms, model, loadingModel, itemCounter]);
 
       const removeRoomPhoto = (roomIndex, photoIndex) => {
@@ -267,18 +249,15 @@
           }
           setFormData({ ...formData, rooms: newRooms });
         } catch (err) {
-          console.error('Room photo analysis failed:', err);
+          console.error('Photo analysis failed:', err);
           alert('Failed to analyze room photo. Try another image or use manual overrides.');
         } finally {
           URL.revokeObjectURL(photoUrl);
         }
       };
 
-      const analyzeFurniturePhoto = async (photoUrl, roomIndex, itemIndex, userProvidedName) => {
-        if (loadingModel || !model) {
-          console.error('Model not loaded or loading');
-          return;
-        }
+      const analyzeFurniturePhoto = async (photoUrl, roomIndex, itemIndex) => {
+        if (loadingModel || !model) return;
 
         try {
           const img = new Image();
@@ -286,14 +265,11 @@
           await new Promise(resolve => { img.onload = resolve; });
 
           const predictions = await model.detect(img);
-          console.log(`Predictions for item ${itemIndex} in room ${roomIndex}:`, predictions);
-
-          let furnitureType = userProvidedName || 'Dresser';
-          let dimensions = { width: '3.5', length: '1.5', height: '3' };
+          let furnitureType = 'Dresser'; // Default to dresser for unrecognized furniture
+          let dimensions = { width: '3.5', length: '1.5', height: '3' }; // Standard dresser dimensions
 
           const furnitureClasses = ['bed', 'chair', 'couch', 'dining table', 'potted plant', 'tv'];
           const detected = predictions.find(pred => furnitureClasses.includes(pred.class));
-
           if (detected) {
             furnitureType = detected.class.charAt(0).toUpperCase() + detected.class.slice(1);
             switch (detected.class) {
@@ -303,39 +279,23 @@
               case 'dining table': dimensions = { width: '6', length: '4', height: '3' }; break;
               case 'potted plant': dimensions = { width: '2', length: '2', height: '3' }; break;
               case 'tv': dimensions = { width: '4', length: '2', height: '3' }; break;
-              default: dimensions = { width: '3.5', length: '1.5', height: '3' };
+              default: dimensions = { width: '3.5', length: '1.5', height: '3' }; // Fallback for dresser
             }
-            console.log(`Detected furniture: ${furnitureType} with dimensions`, dimensions);
           } else if (predictions.length > 0) {
-            furnitureType = userProvidedName || 'Dresser';
+            // If no specific furniture class but objects detected, assume dresser
+            furnitureType = 'Dresser';
             dimensions = { width: '3.5', length: '1.5', height: '3' };
-            console.log(`No specific furniture detected, using fallback: ${furnitureType} with dimensions`, dimensions);
-          } else {
-            furnitureType = userProvidedName || 'Could Not Detect Item';
-            dimensions = { width: '', length: '', height: '' };
-            alert(`Could not detect any furniture in the photo for ${userProvidedName || 'item'}. Please edit the item name and dimensions manually.`);
-            console.log(`No objects detected for item ${itemIndex}, set to ${furnitureType}`);
           }
 
           const newRooms = [...formData.rooms];
-          newRooms[roomIndex].furnitureItems[itemIndex].name = userProvidedName ? userProvidedName : `Detected ${furnitureType}`;
-          if (furnitureType === 'Could Not Detect Item') {
-            newRooms[roomIndex].furnitureItems[itemIndex].name = furnitureType;
-          }
+          newRooms[roomIndex].furnitureItems[itemIndex].name = `Detected ${furnitureType}`;
           newRooms[roomIndex].furnitureItems[itemIndex].width = dimensions.width;
           newRooms[roomIndex].furnitureItems[itemIndex].length = dimensions.length;
           newRooms[roomIndex].furnitureItems[itemIndex].height = dimensions.height;
-          setFormData({ ...formData, rooms: [...newRooms] });
-          console.log(`Updated item ${newRooms[roomIndex].furnitureItems[itemIndex].id}: name=${newRooms[roomIndex].furnitureItems[itemIndex].name}, dimensions=`, dimensions);
+          setFormData({ ...formData, rooms: newRooms });
         } catch (err) {
           console.error('Furniture photo analysis failed:', err);
-          const newRooms = [...formData.rooms];
-          newRooms[roomIndex].furnitureItems[itemIndex].name = userProvidedName || 'Could Not Detect Item';
-          newRooms[roomIndex].furnitureItems[itemIndex].width = '';
-          newRooms[roomIndex].furnitureItems[itemIndex].length = '';
-          newRooms[roomIndex].furnitureItems[itemIndex].height = '';
-          setFormData({ ...formData, rooms: [...newRooms] });
-          alert('Failed to analyze furniture photo. Please edit item name and dimensions manually.');
+          alert('Failed to analyze furniture photo. Edit item name and dimensions manually.');
         }
       };
 
@@ -642,9 +602,9 @@
                           required
                         />
                       </div>
-                      {item.name.startsWith('Detected') || item.name === 'Could Not Detect Item' ? (
+                      {item.name.startsWith('Detected') && (
                         <p className="text-xs text-gray-500">Auto-detected item (edit name/dimensions if needed)</p>
-                      ) : null}
+                      )}
                       <div className="flex gap-2 mb-1">
                         <input
                           type="number"
@@ -669,13 +629,6 @@
                         />
                       </div>
                       <div className="mb-1">
-                        <label className="block text-sm font-medium">Item Name for Upload (Optional)</label>
-                        <input
-                          type="text"
-                          id={`furnitureName-${roomIndex}`}
-                          placeholder="Enter item name (e.g., Dresser)"
-                          className="w-full p-1 border rounded mb-1"
-                        />
                         <label className="block text-sm font-medium">Upload Furniture Photo(s)</label>
                         <input
                           type="file"
