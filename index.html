@@ -14,6 +14,7 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <script src="https://apis.google.com/js/api.js"></script>
   <link rel="manifest" href="manifest.json">
   <style>
     canvas { border: 1px solid #ccc; }
@@ -69,8 +70,29 @@
       const [model, setModel] = useState(null);
       const [loadingModel, setLoadingModel] = useState(true);
       const [itemCounter, setItemCounter] = useState(1);
+      const [gapiLoaded, setGapiLoaded] = useState(false);
+      const [gapiSignedIn, setGapiSignedIn] = useState(false);
+
+      // Google Drive API credentials
+      const CLIENT_ID = '534251225749-b7rjflroua415i616iopie6s09sp1isd.apps.googleusercontent.com';
+      const API_KEY = 'AIzaSyCkVElXGRTtahGa140YDCW9d9JK7D0qhbQ';
+      const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
       useEffect(() => {
+        // Load Google API client
+        window.gapi.load('client:auth2', () => {
+          window.gapi.client.init({
+            apiKey: API_KEY,
+            clientId: CLIENT_ID,
+            scope: SCOPES,
+          }).then(() => {
+            setGapiLoaded(true);
+            setGapiSignedIn(window.gapi.auth2.getAuthInstance().isSignedIn.get());
+            window.gapi.auth2.getAuthInstance().isSignedIn.listen(setGapiSignedIn);
+          }).catch(err => console.error('GAPI init failed:', err));
+        });
+
+        // Load COCO-SSD model
         cocoSsd.load().then(loadedModel => {
           setModel(loadedModel);
           setLoadingModel(false);
@@ -114,25 +136,17 @@
       };
 
       const addFurnitureItem = (roomIndex) => {
-      
         const newRooms = [...formData.rooms];
-        newRooms[roomIndex].furnitureItems.push({
-            id: `Item-${itemCounter}`,
-            name: '',
-            width: '',
-            length: '',
-            height: '',
-            packingItem: false,
-            photo: null
-        });
+        newRooms[roomIndex].furnitureItems.push({ id: `Item-${itemCounter}`, name: '', width: '', length: '', height: '', packingItem: false, photo: null });
         setFormData({ ...formData, rooms: newRooms });
-        setItemCounter(itemCounter + 1); // Increment itemCounter
-};
+        // Do not increment itemCounter here
+      };
+
       const addPackingItem = (roomIndex) => {
         const newRooms = [...formData.rooms];
         newRooms[roomIndex].packingItems.push({ id: `Item-${itemCounter}`, name: '', width: '', length: '', height: '', packingItem: true });
         setFormData({ ...formData, rooms: newRooms });
-        setItemCounter(itemCounter + 1); // Increment for packing items
+        setItemCounter(itemCounter + 1);
       };
 
       const removeItem = (roomIndex, itemIndex, type = 'furniture') => {
@@ -145,40 +159,62 @@
       };
 
       const handleRoomPhotoUpload = useCallback((e, roomIndex) => {
-        const files = e.target.files;
+        const files = Array.from(e.target.files);
         if (files.length > 0) {
           const newRooms = [...formData.rooms];
-          const newPhotos = Array.from(files).map(file => URL.createObjectURL(file));
+          const newPhotos = files.map(file => ({
+            url: URL.createObjectURL(file),
+            file
+          }));
           newRooms[roomIndex].photos.push(...newPhotos);
           setFormData({ ...formData, rooms: newRooms });
 
-          newPhotos.forEach((photoUrl, index) => {
-            setTimeout(() => analyzeRoomPhoto(photoUrl, roomIndex, true), (index + 1) * 1000);
+          newPhotos.forEach((photo, index) => {
+            if (photo.file.type.startsWith('image/')) {
+              setTimeout(() => analyzeRoomPhoto(photo.url, roomIndex, true), (index + 1) * 1000);
+            }
           });
         }
       }, [formData.rooms, model, loadingModel]);
 
-      const handleFurniturePhotoUpload = useCallback((e, roomIndex, itemIndex) => {
-  const file = e.target.files[0];
-  if (!file) return;
+      const handleFurniturePhotoUpload = useCallback((e, roomIndex) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
 
-  const newRooms = [...formData.rooms];
-  const photoUrl = URL.createObjectURL(file);
-  newRooms[roomIndex].furnitureItems[itemIndex].photo = photoUrl;
-  setFormData({ ...formData, rooms: newRooms });
+        const newRooms = [...formData.rooms];
+        const startCounter = itemCounter;
+        const newItems = files.map((file, index) => ({
+          id: `Item-${startCounter + index}`,
+          name: '',
+          width: '',
+          length: '',
+          height: '',
+          packingItem: false,
+          photo: URL.createObjectURL(file),
+          file
+        }));
+        newRooms[roomIndex].furnitureItems.push(...newItems);
+        setFormData({ ...formData, rooms: newRooms });
+        setItemCounter(startCounter + newItems.length);
 
-  setTimeout(() => analyzeFurniturePhoto(photoUrl, roomIndex, itemIndex), 1000);
-}, [formData.rooms, model, loadingModel]);
+        newItems.forEach((item, index) => {
+          if (item.file.type.startsWith('image/')) {
+            setTimeout(() => analyzeFurniturePhoto(item.photo, roomIndex, newRooms[roomIndex].furnitureItems.length - newItems.length + index), (index + 1) * 1000);
+          }
+        });
+      }, [formData.rooms, model, loadingModel, itemCounter]);
 
       const removeRoomPhoto = (roomIndex, photoIndex) => {
         const newRooms = [...formData.rooms];
-        const photoUrl = newRooms[roomIndex].photos[photoIndex];
+        const photo = newRooms[roomIndex].photos[photoIndex];
+        if (photo.url) URL.revokeObjectURL(photo.url);
         newRooms[roomIndex].photos.splice(photoIndex, 1);
-        URL.revokeObjectURL(photoUrl);
         newRooms[roomIndex].estimatedMaterials = { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 };
         newRooms[roomIndex].packingItems = [];
-        newRooms[roomIndex].photos.forEach((photoUrl, index) => {
-          setTimeout(() => analyzeRoomPhoto(photoUrl, roomIndex, index > 0), (index + 1) * 1000);
+        newRooms[roomIndex].photos.forEach((photo, index) => {
+          if (photo.file.type.startsWith('image/')) {
+            setTimeout(() => analyzeRoomPhoto(photo.url, roomIndex, index > 0), (index + 1) * 1000);
+          }
         });
         setFormData({ ...formData, rooms: newRooms });
       };
@@ -188,6 +224,7 @@
         const item = newRooms[roomIndex].furnitureItems[itemIndex];
         if (item.photo) URL.revokeObjectURL(item.photo);
         newRooms[roomIndex].furnitureItems[itemIndex].photo = null;
+        newRooms[roomIndex].furnitureItems[itemIndex].file = null;
         setFormData({ ...formData, rooms: newRooms });
       };
 
@@ -254,8 +291,8 @@
           await new Promise(resolve => { img.onload = resolve; });
 
           const predictions = await model.detect(img);
-          let furnitureType = 'Dresser'; // Default to dresser for unrecognized furniture
-          let dimensions = { width: '3.5', length: '1.5', height: '3' }; // Standard dresser dimensions
+          let furnitureType = 'Dresser';
+          let dimensions = { width: '3.5', length: '1.5', height: '3' };
 
           const furnitureClasses = ['bed', 'chair', 'couch', 'dining table', 'potted plant', 'tv'];
           const detected = predictions.find(pred => furnitureClasses.includes(pred.class));
@@ -268,10 +305,9 @@
               case 'dining table': dimensions = { width: '6', length: '4', height: '3' }; break;
               case 'potted plant': dimensions = { width: '2', length: '2', height: '3' }; break;
               case 'tv': dimensions = { width: '4', length: '2', height: '3' }; break;
-              default: dimensions = { width: '3.5', length: '1.5', height: '3' }; // Fallback for dresser
+              default: dimensions = { width: '3.5', length: '1.5', height: '3' };
             }
           } else if (predictions.length > 0) {
-            // If no specific furniture class but objects detected, assume dresser
             furnitureType = 'Dresser';
             dimensions = { width: '3.5', length: '1.5', height: '3' };
           }
@@ -285,6 +321,111 @@
         } catch (err) {
           console.error('Furniture photo analysis failed:', err);
           alert('Failed to analyze furniture photo. Edit item name and dimensions manually.');
+        }
+      };
+
+      const saveToGoogleDrive = async () => {
+        if (!gapiLoaded) {
+          alert('Google API not loaded. Please try again later.');
+          return;
+        }
+
+        if (!gapiSignedIn) {
+          try {
+            await window.gapi.auth2.getAuthInstance().signIn();
+            setGapiSignedIn(true);
+          } catch (err) {
+            console.error('Google Sign-In failed:', err);
+            alert('Failed to sign in to Google. Please try again.');
+            return;
+          }
+        }
+
+        try {
+          // Create or find folder in Google Drive
+          const folderName = `Assessment_${formData.clientName || 'Untitled'}_${Date.now()}`;
+          let folderId;
+          const folderSearch = await window.gapi.client.drive.files.list({
+            q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+            fields: 'files(id)'
+          });
+
+          if (folderSearch.result.files.length > 0) {
+            folderId = folderSearch.result.files[0].id;
+          } else {
+            const folderMetadata = {
+              name: folderName,
+              mimeType: 'application/vnd.google-apps.folder'
+            };
+            const folderResponse = await window.gapi.client.drive.files.create({
+              resource: folderMetadata,
+              fields: 'id'
+            });
+            folderId = folderResponse.result.id;
+          }
+
+          // Collect all photos and videos
+          const filesToUpload = [];
+          formData.rooms.forEach((room, roomIndex) => {
+            room.photos.forEach((photo, index) => {
+              if (photo.file) {
+                filesToUpload.push({
+                  file: photo.file,
+                  name: `${room.name || 'Room'}_${index + 1}.${photo.file.name.split('.').pop()}`
+                });
+              }
+            });
+            room.furnitureItems.forEach((item, index) => {
+              if (item.file) {
+                filesToUpload.push({
+                  file: item.file,
+                  name: `${room.name || 'Room'}_Item-${item.id}.${item.file.name.split('.').pop()}`
+                });
+              }
+            });
+          });
+
+          // Upload or update files to Google Drive
+          for (const { file, name } of filesToUpload) {
+            // Check if file exists
+            const fileSearch = await window.gapi.client.drive.files.list({
+              q: `name='${name}' and '${folderId}' in parents and trashed=false`,
+              fields: 'files(id)'
+            });
+
+            const metadata = {
+              name,
+              parents: fileSearch.result.files.length === 0 ? [folderId] : undefined
+            };
+            const form = new FormData();
+            form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+            form.append('file', file);
+
+            if (fileSearch.result.files.length > 0) {
+              // Update existing file
+              await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileSearch.result.files[0].id}?uploadType=multipart`, {
+                method: 'PATCH',
+                headers: {
+                  Authorization: `Bearer ${window.gapi.auth2.getAuthInstance().currentUser.get().getAuthResponse().access_token}`
+                },
+                body: form
+              });
+            } else {
+              // Create new file
+              await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${window.gapi.auth2.getAuthInstance().currentUser.get().getAuthResponse().access_token}`
+                },
+                body: form
+              });
+            }
+          }
+
+          alert('All photos and videos uploaded/updated to Google Drive successfully!');
+        } catch (err) {
+          console.error('Upload to Google Drive failed:', err);
+          alert('Failed to upload to Google Drive. Please check your internet connection or API permissions.');
         }
       };
 
@@ -500,10 +641,10 @@
                 </div>
 
                 <div className="mb-2">
-                  <label className="block text-sm font-medium">Upload Room Photo(s) (for packing items like dishes)</label>
+                  <label className="block text-sm font-medium">Upload Room Photo(s)/Video(s) (for packing items like dishes)</label>
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/*,video/*"
                     multiple
                     onChange={(e) => handleRoomPhotoUpload(e, roomIndex)}
                     className="w-full p-2 border rounded"
@@ -512,9 +653,13 @@
 
                 {room.photos.length > 0 && (
                   <div className="grid grid-cols-3 gap-2 mb-2">
-                    {room.photos.map((photoUrl, photoIndex) => (
+                    {room.photos.map((photo, photoIndex) => (
                       <div key={photoIndex} className="relative">
-                        <img src={photoUrl} alt={`Room Photo ${photoIndex + 1}`} className="w-full h-20 object-cover rounded" />
+                        {photo.file.type.startsWith('video/') ? (
+                          <video src={photo.url} controls className="w-full h-20 object-cover rounded" />
+                        ) : (
+                          <img src={photo.url} alt={`Room Media ${photoIndex + 1}`} className="w-full h-20 object-cover rounded" />
+                        )}
                         <button
                           onClick={() => removeRoomPhoto(roomIndex, photoIndex)}
                           className="absolute top-0 right-0 bg-red-500 text-white px-1 py-0.5 text-xs rounded"
@@ -578,84 +723,88 @@
 
                 <h3 className="text-md font-medium mb-1">Furniture Items (e.g., sofas, beds)</h3>
                 {room.furnitureItems.map((item, itemIndex) => (
-  <div key={itemIndex} className="mb-2 p-2 border rounded flex items-center gap-2">
-    <div className="flex-1">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-sm font-medium">{item.id}</span>
-        <input
-          type="text"
-          placeholder="Item name (e.g., Sofa, Bed)"
-          value={item.name}
-          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'name', 'furniture')}
-          className="w-full p-1 border rounded"
-          required
-        />
-      </div>
-      {item.name.startsWith('Detected') && (
-        <p className="text-xs text-gray-500">Auto-detected item (edit name/dimensions if needed)</p>
-      )}
-      <div className="flex gap-2 mb-1">
-        <input
-          type="number"
-          placeholder="Width (ft) - optional"
-          value={item.width}
-          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'width', 'furniture')}
-          className="w-1/3 p-1 border rounded"
-        />
-        <input
-          type="number"
-          placeholder="Length (ft) - optional"
-          value={item.length}
-          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'length', 'furniture')}
-          className="w-1/3 p-1 border rounded"
-        />
-        <input
-          type="number"
-          placeholder="Height (ft) - optional"
-          value={item.height}
-          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'height', 'furniture')}
-          className="w-1/3 p-1 border rounded"
-        />
-      </div>
-      <div className="mb-1">
-        <label className="block text-sm font-medium">Upload Furniture Photo</label>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => handleFurniturePhotoUpload(e, roomIndex, itemIndex)}
-          className="w-full p-1 border rounded"
-        />
-      </div>
-      {item.photo && (
-        <div className="relative w-20 h-20">
-          <img src={item.photo} alt="Furniture" className="w-full h-full object-cover rounded" />
-          <button
-            onClick={() => removeFurniturePhoto(roomIndex, itemIndex)}
-            className="absolute top-0 right-0 bg-red-500 text-white px-1 py-0.5 text-xs rounded"
-          >
-            Remove
-          </button>
-        </div>
-      )}
-      <label className="flex items-center mt-1 text-sm">
-        <input
-          type="checkbox"
-          checked={item.packingItem}
-          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'packingItem', 'furniture')}
-          className="mr-2"
-        />
-        Move to Packing Items (e.g., small items)
-      </label>
-    </div>
-    <button
-      onClick={() => removeItem(roomIndex, itemIndex, 'furniture')}
-      className="bg-red-500 text-white px-2 py-1 rounded text-sm"
-    >
-      Remove
-    </button>
-  </div>
-))}
-                
+                  <div key={itemIndex} className="mb-2 p-2 border rounded flex items-center gap-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-medium">{item.id}</span>
+                        <input
+                          type="text"
+                          placeholder="Item name (e.g., Sofa, Bed)"
+                          value={item.name}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'name', 'furniture')}
+                          className="w-full p-1 border rounded"
+                          required
+                        />
+                      </div>
+                      {item.name.startsWith('Detected') && (
+                        <p className="text-xs text-gray-500">Auto-detected item (edit name/dimensions if needed)</p>
+                      )}
+                      <div className="flex gap-2 mb-1">
+                        <input
+                          type="number"
+                          placeholder="Width (ft) - optional"
+                          value={item.width}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'width', 'furniture')}
+                          className="w-1/3 p-1 border rounded"
+                        />
+                        <input
+                          type="number"
+                          placeholder="Length (ft) - optional"
+                          value={item.length}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'length', 'furniture')}
+                          className="w-1/3 p-1 border rounded"
+                        />
+                        <input
+                          type="number"
+                          placeholder="Height (ft) - optional"
+                          value={item.height}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'height', 'furniture')}
+                          className="w-1/3 p-1 border rounded"
+                        />
+                      </div>
+                      <div className="mb-1">
+                        <label className="block text-sm font-medium">Upload Furniture Photo(s)/Video(s)</label>
+                        <input
+                          type="file"
+                          accept="image/*,video/*"
+                          multiple
+                          onChange={(e) => handleFurniturePhotoUpload(e, roomIndex)}
+                          className="w-full p-1 border rounded"
+                        />
+                      </div>
+                      {item.photo && (
+                        <div className="relative w-20 h-20">
+                          {item.file && item.file.type.startsWith('video/') ? (
+                            <video src={item.photo} controls className="w-full h-full object-cover rounded" />
+                          ) : (
+                            <img src={item.photo} alt="Furniture" className="w-full h-full object-cover rounded" />
+                          )}
+                          <button
+                            onClick={() => removeFurniturePhoto(roomIndex, itemIndex)}
+                            className="absolute top-0 right-0 bg-red-500 text-white px-1 py-0.5 text-xs rounded"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                      <label className="flex items-center mt-1 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={item.packingItem}
+                          onChange={(e) => handleInputChange(e, roomIndex, itemIndex, 'packingItem', 'furniture')}
+                          className="mr-2"
+                        />
+                        Move to Packing Items (e.g., small items)
+                      </label>
+                    </div>
+                    <button
+                      onClick={() => removeItem(roomIndex, itemIndex, 'furniture')}
+                      className="bg-red-500 text-white px-2 py-1 rounded text-sm"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
                 <button
                   onClick={() => addFurnitureItem(roomIndex)}
                   className="bg-blue-500 text-white px-4 py-2 rounded mt-2"
@@ -819,6 +968,13 @@
                 className="bg-gray-500 text-white px-4 py-2 rounded"
               >
                 Export to CSV
+              </button>
+              <button
+                onClick={saveToGoogleDrive}
+                className="bg-blue-500 text-white px-4 py-2 rounded"
+                disabled={!gapiLoaded}
+              >
+                Save to Google Drive
               </button>
             </div>
           </div>
