@@ -46,6 +46,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [selectedRoomIndex, setSelectedRoomIndex] = useState(0);
   const [itemCounter, setItemCounter] = useState(1);
+  const [accessToken, setAccessToken] = useState(null);
 
   useEffect(() => {
     cocoSsd.load().then(loadedModel => {
@@ -58,6 +59,18 @@ function App() {
     localStorage.setItem('rates', JSON.stringify(rates));
   }, [rates]);
 
+  // Initialize Google API Client for Drive
+  useEffect(() => {
+    window.gapi?.load('client', () => {
+      window.gapi.client.init({
+        apiKey: 'YOUR_API_KEY', // Replace with your Google API Key
+        discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+      }).then(() => {
+        console.log('Google API Client initialized');
+      }).catch(err => console.error('Google API Client init failed:', err));
+    });
+  }, []);
+
   // Google Sign-In
   const handleCredentialResponse = useCallback((response) => {
     const userInfo = JSON.parse(atob(response.credential.split('.')[1]));
@@ -66,6 +79,7 @@ function App() {
       email: userInfo.email,
       picture: userInfo.picture,
     });
+    setAccessToken(response.credential); // Store the ID token for Drive API
   }, []);
 
   useEffect(() => {
@@ -73,6 +87,7 @@ function App() {
       client_id: '534251225749-b7rjflroua415i616iopie6s09sp1isd.apps.googleusercontent.com',
       callback: handleCredentialResponse,
       auto_select: false,
+      scope: 'https://www.googleapis.com/auth/drive.file', // Add Drive scope
     });
 
     window.google?.accounts.id.renderButton(
@@ -90,6 +105,7 @@ function App() {
 
   const handleSignOut = () => {
     setUser(null);
+    setAccessToken(null);
     window.google?.accounts.id.disableAutoSelect();
   };
 
@@ -126,9 +142,16 @@ function App() {
             <img src={user.picture} alt="Profile" className="w-12 h-12 rounded-full mb-2" />
             <button
               onClick={handleSignOut}
-              className="bg-red-500 text-white px-4 py-2 rounded"
+              className="bg-red-500 text-white px-4 py-2 rounded mr-2"
             >
               Sign Out
+            </button>
+            <button
+              onClick={() => saveToGoogleDrive(formData, accessToken)}
+              className="bg-blue-500 text-white px-4 py-2 rounded"
+              disabled={!formData.clientName || !accessToken}
+            >
+              Save to Google Drive
             </button>
           </div>
         ) : (

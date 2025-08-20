@@ -1,7 +1,6 @@
 const { jsPDF } = window.jspdf;
 
 function calculateEstimate(formData, rates) {
-  // Return default estimate if formData or formData.rooms is undefined
   if (!formData || !formData.rooms) {
     return { low: '0.00', high: '0.00' };
   }
@@ -30,7 +29,6 @@ function calculateEstimate(formData, rates) {
 }
 
 function generatePDF(formData, calculateEstimate) {
-  // Use calculateEstimate to get the estimate
   const { low, high } = calculateEstimate();
   const doc = new jsPDF();
   doc.text(`Quote for ${formData.clientName || 'Unknown'}`, 10, 10);
@@ -198,5 +196,125 @@ function analyzeFurniturePhoto(photoUrl, roomIndex, itemIndex, formData, setForm
   } catch (err) {
     console.error('Furniture photo analysis failed:', err);
     alert('Failed to analyze furniture photo. Edit item name and dimensions manually.');
+  }
+}
+
+async function getOrCreateClientFolder(clientName, accessToken) {
+  if (!clientName || !accessToken) {
+    throw new Error('Client name and access token are required');
+  }
+
+  // Search for existing folder
+  const response = await window.gapi.client.drive.files.list({
+    q: `name='${clientName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id, name)',
+    spaces: 'drive',
+  });
+
+  const folders = response.result.files;
+  if (folders && folders.length > 0) {
+    return folders[0].id; // Return existing folder ID
+  }
+
+  // Create new folder if none exists
+  const folderMetadata = {
+    name: clientName,
+    mimeType: 'application/vnd.google-apps.folder',
+  };
+
+  const folderResponse = await window.gapi.client.drive.files.create({
+    resource: folderMetadata,
+    fields: 'id',
+  });
+
+  return folderResponse.result.id;
+}
+
+async function uploadFileToDrive(file, folderId, accessToken, roomName, itemId) {
+  if (!file || !folderId || !accessToken) {
+    throw new Error('File, folder ID, and access token are required');
+  }
+
+  const fileName = `${roomName || 'Unnamed'}_${itemId || 'media'}_${Date.now()}.${file.type.split('/')[1]}`;
+  const metadata = {
+    name: fileName,
+    parents: [folderId],
+    mimeType: file.type,
+  };
+
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+  form.append('file', file);
+
+  const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: form,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to upload file: ${response.statusText}`);
+  }
+
+  return await response.json();
+}
+
+async function saveToGoogleDrive(formData, accessToken) {
+  if (!formData.clientName || !accessToken) {
+    alert('Please enter a client name and sign in with Google.');
+    return;
+  }
+
+  try {
+    // Set access token for gapi.client
+    window.gapi.client.setToken({ access_token: accessToken });
+
+    // Get or create client folder
+    const folderId = await getOrCreateClientFolder(formData.clientName, accessToken);
+
+    // Collect all files to upload
+    const filesToUpload = [];
+    formData.rooms.forEach((room, roomIndex) => {
+      // Room photos
+      room.photos.forEach((photoUrl, photoIndex) => {
+        // Convert data URL to Blob
+        const byteString = atob(photoUrl.split(',')[1]);
+        const mimeString = photoUrl.split(',')[0].split(':')[1].split(';')[0];
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) {
+          ia[i] = byteString.charCodeAt(i);
+        }
+        const blob = new Blob([ab], { type: mimeString });
+        filesToUpload.push({ file: blob, roomName: room.name, itemId: `RoomPhoto-${photoIndex + 1}` });
+      });
+
+      // Furniture item photos
+      room.furnitureItems.forEach((item, itemIndex) => {
+        if (item.photo) {
+          const byteString = atob(item.photo.split(',')[1]);
+          const mimeString = item.photo.split(',')[0].split(':')[1].split(';')[0];
+          const ab = new ArrayBuffer(byteString.length);
+          const ia = new Uint8Array(ab);
+          for (let i = 0; i < byteString.length; i++) {
+            ia[i] = byteString.charCodeAt(i);
+          }
+          const blob = new Blob([ab], { type: mimeString });
+          filesToUpload.push({ file: blob, roomName: room.name, itemId: item.id });
+        }
+      });
+    });
+
+    // Upload all files
+    for (const { file, roomName, itemId } of filesToUpload) {
+      await uploadFileToDrive(file, folderId, accessToken, roomName, itemId);
+    }
+
+    alert('All media files have been successfully uploaded to Google Drive!');
+  } catch (err) {
+    console.error('Failed to save to Google Drive:', err);
+    alert('Failed to save to Google Drive. Please try again or check console for details.');
   }
 }

@@ -155,10 +155,10 @@ function RoomForm({ formData, setFormData, model, loadingModel, itemCounter, set
           </div>
 
           <div className="mb-2">
-            <label className="block text-sm font-medium">Upload Room Photo(s) (for packing items like dishes)</label>
+            <label className="block text-sm font-medium">Upload Room Photo(s)/Video(s) (for packing items like dishes)</label>
             <input
               type="file"
-              accept="image/*"
+              accept="image/*,video/*"
               multiple
               onChange={(e) => handleRoomPhotoUpload(e, roomIndex)}
               className="w-full p-2 border rounded"
@@ -169,7 +169,11 @@ function RoomForm({ formData, setFormData, model, loadingModel, itemCounter, set
             <div className="grid grid-cols-3 gap-2 mb-2">
               {room.photos.map((photoUrl, photoIndex) => (
                 <div key={photoIndex} className="relative">
-                  <img src={photoUrl} alt={`Room Photo ${photoIndex + 1}`} className="w-full h-20 object-cover rounded" />
+                  {photoUrl.startsWith('data:video/') ? (
+                    <video src={photoUrl} controls className="w-full h-20 object-cover rounded" />
+                  ) : (
+                    <img src={photoUrl} alt={`Room Photo ${photoIndex + 1}`} className="w-full h-20 object-cover rounded" />
+                  )}
                   <button
                     onClick={() => removeRoomPhoto(roomIndex, photoIndex)}
                     className="absolute top-0 right-0 bg-red-500 text-white px-1 py-0.5 text-xs rounded"
@@ -234,17 +238,21 @@ function RoomForm({ formData, setFormData, model, loadingModel, itemCounter, set
                   ))}
                 </div>
                 <div className="mb-1">
-                  <label className="block text-sm font-medium">Upload Furniture Photo</label>
+                  <label className="block text-sm font-medium">Upload Furniture Photo/Video</label>
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/*,video/*"
                     onChange={(e) => handleFurniturePhotoUpload(e, roomIndex, itemIndex)}
                     className="w-full p-1 border rounded"
                   />
                 </div>
                 {item.photo && (
                   <div className="relative w-20 h-20">
-                    <img src={item.photo} alt="Furniture" className="w-full h-full object-cover rounded" />
+                    {item.photo.startsWith('data:video/') ? (
+                      <video src={item.photo} controls className="w-full h-full object-cover rounded" />
+                    ) : (
+                      <img src={item.photo} alt="Furniture" className="w-full h-full object-cover rounded" />
+                    )}
                     <button
                       onClick={() => removeFurniturePhoto(roomIndex, itemIndex)}
                       className="absolute top-0 right-0 bg-red-500 text-white px-1 py-0.5 text-xs rounded"
