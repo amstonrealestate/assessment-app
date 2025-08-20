@@ -182,14 +182,16 @@ function App() {
       />
 
       {/* Estimate Details */}
-      <EstimateDetails
-        formData={formData}
-        setFormData={setFormData}
-        rates={rates}
-        calculateEstimate={calculateEstimate}
-        generatePDF={generatePDF}
-        exportToCSV={exportToCSV}
-      />
+      {formData && rates && (
+        <EstimateDetails
+          formData={formData}
+          setFormData={setFormData}
+          rates={rates}
+          calculateEstimate={calculateEstimate}
+          generatePDF={generatePDF}
+          exportToCSV={exportToCSV}
+        />
+      )}
 
       {/* Room Visualization */}
       <RoomVisualization

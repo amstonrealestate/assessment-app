@@ -1,80 +1,86 @@
 const { jsPDF } = window.jspdf;
 
 function calculateEstimate(formData, rates) {
-  const totalItems = formData.rooms.reduce((sum, room) => sum + room.furnitureItems.length + room.packingItems.length, 0);
-  let totalMaterialsCost = rates.materialsCost + (parseFloat(formData.materials) || 0);
+  // Return default estimate if formData or formData.rooms is undefined
+  if (!formData || !formData.rooms) {
+    return { low: '0.00', high: '0.00' };
+  }
+
+  const totalItems = formData.rooms.reduce((sum, room) => sum + (room.furnitureItems?.length || 0) + (room.packingItems?.length || 0), 0);
+  let totalMaterialsCost = (rates?.materialsCost || 0) + (parseFloat(formData.materials) || 0);
 
   formData.rooms.forEach(room => {
-    const mat = room.estimatedMaterials;
-    const override = room.overrideMaterials;
-    totalMaterialsCost += (mat.boxes + override.boxes) * rates.boxCost;
-    totalMaterialsCost += (mat.bubbleWrapFeet + override.bubbleWrapFeet) * rates.bubbleWrapCostPerFoot;
-    totalMaterialsCost += (mat.paperPadBoxes + override.paperPadBoxes) * rates.paperPadCostPerBox;
-    totalMaterialsCost += (mat.dishPacks + override.dishPacks) * rates.dishPackCost;
+    const mat = room.estimatedMaterials || { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 };
+    const override = room.overrideMaterials || { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 };
+    totalMaterialsCost += (mat.boxes + override.boxes) * (rates?.boxCost || 0);
+    totalMaterialsCost += (mat.bubbleWrapFeet + override.bubbleWrapFeet) * (rates?.bubbleWrapCostPerFoot || 0);
+    totalMaterialsCost += (mat.paperPadBoxes + override.paperPadBoxes) * (rates?.paperPadCostPerBox || 0);
+    totalMaterialsCost += (mat.dishPacks + override.dishPacks) * (rates?.dishPackCost || 0);
   });
 
-  const laborLow = formData.movers * rates.moverHourly * (parseFloat(formData.hoursLow) || 0);
-  const laborHigh = formData.movers * rates.moverHourly * (parseFloat(formData.hoursHigh) || 0);
-  const vehicleLow = formData.vehicles * rates.vehicleFlat + formData.mileage * rates.mileageRate;
+  const laborLow = (formData.movers || 0) * (rates?.moverHourly || 0) * (parseFloat(formData.hoursLow) || 0);
+  const laborHigh = (formData.movers || 0) * (rates?.moverHourly || 0) * (parseFloat(formData.hoursHigh) || 0);
+  const vehicleLow = (formData.vehicles || 0) * (rates?.vehicleFlat || 0) + (formData.mileage || 0) * (rates?.mileageRate || 0);
   const vehicleHigh = vehicleLow * 1.2;
-  const packingCost = formData.packing ? rates.packingFee : 0;
-  const itemCost = totalItems * rates.itemHandling;
+  const packingCost = formData.packing ? (rates?.packingFee || 0) : 0;
+  const itemCost = totalItems * (rates?.itemHandling || 0);
   const low = (laborLow + vehicleLow + packingCost + itemCost + totalMaterialsCost).toFixed(2);
   const high = (laborHigh + vehicleHigh + packingCost + itemCost + totalMaterialsCost).toFixed(2);
   return { low, high };
 }
 
 function generatePDF(formData, calculateEstimate) {
+  // Use calculateEstimate to get the estimate
   const { low, high } = calculateEstimate();
   const doc = new jsPDF();
-  doc.text(`Quote for ${formData.clientName}`, 10, 10);
+  doc.text(`Quote for ${formData.clientName || 'Unknown'}`, 10, 10);
   doc.text(`Total Estimate: $${low} - $${high}`, 10, 20);
-  doc.text(`Number of Movers: ${formData.movers}`, 10, 30);
-  doc.text(`Labor Hours (Low/High): ${formData.hoursLow}/${formData.hoursHigh}`, 10, 40);
-  doc.text(`Number of Vehicles: ${formData.vehicles}`, 10, 50);
-  doc.text(`Mileage (miles): ${formData.mileage}`, 10, 60);
+  doc.text(`Number of Movers: ${formData.movers || 0}`, 10, 30);
+  doc.text(`Labor Hours (Low/High): ${formData.hoursLow || 0}/${formData.hoursHigh || 0}`, 10, 40);
+  doc.text(`Number of Vehicles: ${formData.vehicles || 0}`, 10, 50);
+  doc.text(`Mileage (miles): ${formData.mileage || 0}`, 10, 60);
   doc.text(`Packing Service: ${formData.packing ? 'Yes' : 'No'}`, 10, 70);
-  doc.text(`Additional Materials Cost: $${formData.materials}`, 10, 80);
+  doc.text(`Additional Materials Cost: $${formData.materials || 0}`, 10, 80);
   doc.text('Rooms:', 10, 90);
   let yPos = 100;
-  formData.rooms.forEach((room, rIdx) => {
-    doc.text(`${room.name} (${room.width}x${room.length} ft):`, 10, yPos);
+  (formData.rooms || []).forEach((room, rIdx) => {
+    doc.text(`${room.name || 'Unnamed'} (${room.width || 'N/A'}x${room.length || 'N/A'} ft):`, 10, yPos);
     yPos += 10;
     doc.text('  Furniture Items:', 10, yPos);
     yPos += 10;
-    room.furnitureItems.forEach((item, i) => {
-      doc.text(`    - ${item.id}: ${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'})`, 10, yPos);
+    (room.furnitureItems || []).forEach((item, i) => {
+      doc.text(`    - ${item.id}: ${item.name || 'Unknown'} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'})`, 10, yPos);
       yPos += 10;
     });
     doc.text('  Packing Items:', 10, yPos);
     yPos += 10;
-    room.packingItems.forEach((item, i) => {
-      doc.text(`    - ${item.id}: ${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'})`, 10, yPos);
+    (room.packingItems || []).forEach((item, i) => {
+      doc.text(`    - ${item.id}: ${item.name || 'Unknown'} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'})`, 10, yPos);
       yPos += 10;
     });
-    const mat = room.estimatedMaterials;
-    const override = room.overrideMaterials;
+    const mat = room.estimatedMaterials || { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 };
+    const override = room.overrideMaterials || { boxes: 0, bubbleWrapFeet: 0, paperPadBoxes: 0, dishPacks: 0 };
     doc.text(`  Estimated Materials (Auto + Override): ${(mat.boxes + override.boxes)} boxes, ${(mat.bubbleWrapFeet + override.bubbleWrapFeet)} ft bubble wrap, ${(mat.paperPadBoxes + override.paperPadBoxes)} paper pad boxes, ${(mat.dishPacks + override.dishPacks)} dish packs`, 10, yPos);
     yPos += 10;
   });
-  doc.save(`${formData.clientName}_quote.pdf`);
+  doc.save(`${formData.clientName || 'quote'}_quote.pdf`);
 }
 
 function exportToCSV(formData, calculateEstimate) {
   const { low, high } = calculateEstimate();
   const headers = ['Client Name', 'Number of Movers', 'Labor Hours Low', 'Labor Hours High', 'Number of Vehicles', 'Mileage (miles)', 'Packing Service', 'Materials Cost', 'Total Low', 'Total High', 'Rooms'];
-  const roomsStr = formData.rooms.map(room =>
-    `${room.name} (${room.width}x${room.length}): Furniture - ${room.furnitureItems.map(item => `${item.id}: ${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'})`).join('; ')}; Packing - ${room.packingItems.map(item => `${item.id}: ${item.name} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'})`).join('; ')}; Materials - Boxes: ${room.estimatedMaterials.boxes + room.overrideMaterials.boxes}, Bubble: ${room.estimatedMaterials.bubbleWrapFeet + room.overrideMaterials.bubbleWrapFeet}ft, Paper Pads: ${room.estimatedMaterials.paperPadBoxes + room.overrideMaterials.paperPadBoxes}, Dish Packs: ${room.estimatedMaterials.dishPacks + room.overrideMaterials.dishPacks}`
+  const roomsStr = (formData.rooms || []).map(room =>
+    `${room.name || 'Unnamed'} (${room.width || 'N/A'}x${room.length || 'N/A'}): Furniture - ${(room.furnitureItems || []).map(item => `${item.id}: ${item.name || 'Unknown'} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'})`).join('; ')}; Packing - ${(room.packingItems || []).map(item => `${item.id}: ${item.name || 'Unknown'} (${item.width || 'N/A'}x${item.length || 'N/A'}x${item.height || 'N/A'})`).join('; ')}; Materials - Boxes: ${(room.estimatedMaterials?.boxes || 0) + (room.overrideMaterials?.boxes || 0)}, Bubble: ${(room.estimatedMaterials?.bubbleWrapFeet || 0) + (room.overrideMaterials?.bubbleWrapFeet || 0)}ft, Paper Pads: ${(room.estimatedMaterials?.paperPadBoxes || 0) + (room.overrideMaterials?.paperPadBoxes || 0)}, Dish Packs: ${(room.estimatedMaterials?.dishPacks || 0) + (room.overrideMaterials?.dishPacks || 0)}`
   ).join(' | ');
   const row = [
-    formData.clientName,
-    formData.movers,
-    formData.hoursLow,
-    formData.hoursHigh,
-    formData.vehicles,
-    formData.mileage,
-    formData.packing,
-    formData.materials,
+    formData.clientName || '',
+    formData.movers || 0,
+    formData.hoursLow || 0,
+    formData.hoursHigh || 0,
+    formData.vehicles || 0,
+    formData.mileage || 0,
+    formData.packing || false,
+    formData.materials || 0,
     low,
     high,
     roomsStr,
@@ -84,7 +90,7 @@ function exportToCSV(formData, calculateEstimate) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${formData.clientName}_assessment.csv`;
+  a.download = `${formData.clientName || 'assessment'}_assessment.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
