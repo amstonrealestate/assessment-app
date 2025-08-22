@@ -47,6 +47,7 @@ function App() {
   const [selectedRoomIndex, setSelectedRoomIndex] = useState(0);
   const [itemCounter, setItemCounter] = useState(1);
   const [accessToken, setAccessToken] = useState(null);
+  const [driveStatus, setDriveStatus] = useState(''); // Add status for user feedback
 
   useEffect(() => {
     cocoSsd.load().then(loadedModel => {
@@ -67,19 +68,24 @@ function App() {
         discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
       }).then(() => {
         console.log('Google API Client initialized');
-      }).catch(err => console.error('Google API Client init failed:', err));
+      }).catch(err => {
+        console.error('Google API Client init failed:', err);
+        setDriveStatus('Failed to initialize Google Drive API');
+      });
     });
   }, []);
 
   // Google Sign-In
   const handleCredentialResponse = useCallback((response) => {
+    console.log('Google Sign-In response:', response);
     const userInfo = JSON.parse(atob(response.credential.split('.')[1]));
     setUser({
       name: userInfo.name,
       email: userInfo.email,
       picture: userInfo.picture,
     });
-    setAccessToken(response.credential); // Store the ID token for Drive API
+    setAccessToken(response.credential);
+    console.log('Access token set:', response.credential);
   }, []);
 
   useEffect(() => {
@@ -87,7 +93,7 @@ function App() {
       client_id: '534251225749-b7rjflroua415i616iopie6s09sp1isd.apps.googleusercontent.com',
       callback: handleCredentialResponse,
       auto_select: false,
-      scope: 'https://www.googleapis.com/auth/drive.file', // Add Drive scope
+      scope: 'https://www.googleapis.com/auth/drive.file',
     });
 
     window.google?.accounts.id.renderButton(
@@ -106,6 +112,7 @@ function App() {
   const handleSignOut = () => {
     setUser(null);
     setAccessToken(null);
+    setDriveStatus('');
     window.google?.accounts.id.disableAutoSelect();
   };
 
@@ -147,12 +154,14 @@ function App() {
               Sign Out
             </button>
             <button
-              onClick={() => saveToGoogleDrive(formData, accessToken)}
+              onClick={() => saveToGoogleDrive(formData, accessToken, setDriveStatus)}
               className="bg-blue-500 text-white px-4 py-2 rounded"
-              disabled={!formData.clientName || !accessToken}
+              disabled={!formData.clientName || !accessToken || !formData.rooms.some(room => room.photos.length > 0 || room.furnitureItems.some(item => item.photo))}
+              title={!formData.clientName ? 'Enter a client name' : !accessToken ? 'Sign in with Google' : !formData.rooms.some(room => room.photos.length > 0 || room.furnitureItems.some(item => item.photo)) ? 'Add at least one photo or video' : ''}
             >
               Save to Google Drive
             </button>
+            {driveStatus && <p className="text-sm text-red-500 mt-2">{driveStatus}</p>}
           </div>
         ) : (
           <div id="google-signin-button"></div>

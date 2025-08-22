@@ -199,43 +199,54 @@ function analyzeFurniturePhoto(photoUrl, roomIndex, itemIndex, formData, setForm
   }
 }
 
-async function getOrCreateClientFolder(clientName, accessToken) {
+async function getOrCreateClientFolder(clientName, accessToken, setDriveStatus) {
   if (!clientName || !accessToken) {
+    setDriveStatus('Client name and access token are required');
     throw new Error('Client name and access token are required');
   }
 
-  // Search for existing folder
-  const response = await window.gapi.client.drive.files.list({
-    q: `name='${clientName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-    fields: 'files(id, name)',
-    spaces: 'drive',
-  });
+  try {
+    setDriveStatus('Checking for client folder...');
+    const response = await window.gapi.client.drive.files.list({
+      q: `name='${clientName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: 'files(id, name)',
+      spaces: 'drive',
+    });
 
-  const folders = response.result.files;
-  if (folders && folders.length > 0) {
-    return folders[0].id; // Return existing folder ID
+    const folders = response.result.files;
+    if (folders && folders.length > 0) {
+      setDriveStatus(`Found existing folder: ${clientName}`);
+      return folders[0].id;
+    }
+
+    setDriveStatus(`Creating new folder: ${clientName}`);
+    const folderMetadata = {
+      name: clientName,
+      mimeType: 'application/vnd.google-apps.folder',
+    };
+
+    const folderResponse = await window.gapi.client.drive.files.create({
+      resource: folderMetadata,
+      fields: 'id',
+    });
+
+    setDriveStatus(`Created folder: ${clientName}`);
+    return folderResponse.result.id;
+  } catch (err) {
+    setDriveStatus(`Failed to get or create folder: ${err.message}`);
+    throw err;
   }
-
-  // Create new folder if none exists
-  const folderMetadata = {
-    name: clientName,
-    mimeType: 'application/vnd.google-apps.folder',
-  };
-
-  const folderResponse = await window.gapi.client.drive.files.create({
-    resource: folderMetadata,
-    fields: 'id',
-  });
-
-  return folderResponse.result.id;
 }
 
-async function uploadFileToDrive(file, folderId, accessToken, roomName, itemId) {
+async function uploadFileToDrive(file, folderId, accessToken, roomName, itemId, setDriveStatus) {
   if (!file || !folderId || !accessToken) {
+    setDriveStatus('File, folder ID, and access token are required');
     throw new Error('File, folder ID, and access token are required');
   }
 
   const fileName = `${roomName || 'Unnamed'}_${itemId || 'media'}_${Date.now()}.${file.type.split('/')[1]}`;
+  setDriveStatus(`Uploading ${fileName}...`);
+
   const metadata = {
     name: fileName,
     parents: [folderId],
@@ -246,40 +257,47 @@ async function uploadFileToDrive(file, folderId, accessToken, roomName, itemId) 
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
   form.append('file', file);
 
-  const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: form,
-  });
+  try {
+    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: form,
+    });
 
-  if (!response.ok) {
-    throw new Error(`Failed to upload file: ${response.statusText}`);
+    if (!response.ok) {
+      throw new Error(`Failed to upload file: ${response.statusText}`);
+    }
+
+    setDriveStatus(`Successfully uploaded ${fileName}`);
+    return await response.json();
+  } catch (err) {
+    setDriveStatus(`Failed to upload ${fileName}: ${err.message}`);
+    throw err;
   }
-
-  return await response.json();
 }
 
-async function saveToGoogleDrive(formData, accessToken) {
+async function saveToGoogleDrive(formData, accessToken, setDriveStatus) {
   if (!formData.clientName || !accessToken) {
-    alert('Please enter a client name and sign in with Google.');
+    setDriveStatus('Please enter a client name and sign in with Google.');
+    return;
+  }
+
+  if (!formData.rooms.some(room => room.photos.length > 0 || room.furnitureItems.some(item => item.photo))) {
+    setDriveStatus('No photos or videos to upload.');
     return;
   }
 
   try {
-    // Set access token for gapi.client
+    setDriveStatus('Initializing upload to Google Drive...');
     window.gapi.client.setToken({ access_token: accessToken });
 
-    // Get or create client folder
-    const folderId = await getOrCreateClientFolder(formData.clientName, accessToken);
+    const folderId = await getOrCreateClientFolder(formData.clientName, accessToken, setDriveStatus);
 
-    // Collect all files to upload
     const filesToUpload = [];
     formData.rooms.forEach((room, roomIndex) => {
-      // Room photos
       room.photos.forEach((photoUrl, photoIndex) => {
-        // Convert data URL to Blob
         const byteString = atob(photoUrl.split(',')[1]);
         const mimeString = photoUrl.split(',')[0].split(':')[1].split(';')[0];
         const ab = new ArrayBuffer(byteString.length);
@@ -291,7 +309,6 @@ async function saveToGoogleDrive(formData, accessToken) {
         filesToUpload.push({ file: blob, roomName: room.name, itemId: `RoomPhoto-${photoIndex + 1}` });
       });
 
-      // Furniture item photos
       room.furnitureItems.forEach((item, itemIndex) => {
         if (item.photo) {
           const byteString = atob(item.photo.split(',')[1]);
@@ -307,14 +324,13 @@ async function saveToGoogleDrive(formData, accessToken) {
       });
     });
 
-    // Upload all files
     for (const { file, roomName, itemId } of filesToUpload) {
-      await uploadFileToDrive(file, folderId, accessToken, roomName, itemId);
+      await uploadFileToDrive(file, folderId, accessToken, roomName, itemId, setDriveStatus);
     }
 
-    alert('All media files have been successfully uploaded to Google Drive!');
+    setDriveStatus('All media files have been successfully uploaded to Google Drive!');
   } catch (err) {
     console.error('Failed to save to Google Drive:', err);
-    alert('Failed to save to Google Drive. Please try again or check console for details.');
+    setDriveStatus(`Failed to save to Google Drive: ${err.message}`);
   }
 }
