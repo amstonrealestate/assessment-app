@@ -47,7 +47,7 @@ function App() {
   const [selectedRoomIndex, setSelectedRoomIndex] = useState(0);
   const [itemCounter, setItemCounter] = useState(1);
   const [accessToken, setAccessToken] = useState(null);
-  const [driveStatus, setDriveStatus] = useState(''); // Add status for user feedback
+  const [driveStatus, setDriveStatus] = useState('');
 
   useEffect(() => {
     cocoSsd.load().then(loadedModel => {
@@ -62,51 +62,67 @@ function App() {
 
   // Initialize Google API Client for Drive
   useEffect(() => {
-    window.gapi?.load('client', () => {
-      window.gapi.client.init({
-        apiKey: 'YOUR_API_KEY', // Replace with your Google API Key
-        discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
-      }).then(() => {
-        console.log('Google API Client initialized');
-      }).catch(err => {
-        console.error('Google API Client init failed:', err);
-        setDriveStatus('Failed to initialize Google Drive API');
+    if (window.gapi) {
+      window.gapi.load('client', () => {
+        window.gapi.client.init({
+          apiKey: 'YOUR_API_KEY', // Replace with your Google API Key
+          discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+        }).then(() => {
+          console.log('Google API Client initialized successfully');
+          setDriveStatus('Google Drive API ready');
+        }).catch(err => {
+          console.error('Google API Client init failed:', err);
+          setDriveStatus(`Failed to initialize Google Drive API: ${err.error || err.message}`);
+        });
       });
-    });
+    } else {
+      console.error('gapi not loaded');
+      setDriveStatus('Google API Client script not loaded');
+    }
   }, []);
 
   // Google Sign-In
   const handleCredentialResponse = useCallback((response) => {
     console.log('Google Sign-In response:', response);
-    const userInfo = JSON.parse(atob(response.credential.split('.')[1]));
-    setUser({
-      name: userInfo.name,
-      email: userInfo.email,
-      picture: userInfo.picture,
-    });
-    setAccessToken(response.credential);
-    console.log('Access token set:', response.credential);
+    try {
+      const userInfo = JSON.parse(atob(response.credential.split('.')[1]));
+      setUser({
+        name: userInfo.name,
+        email: userInfo.email,
+        picture: userInfo.picture,
+      });
+      setAccessToken(response.credential);
+      console.log('Access token set:', response.credential);
+    } catch (err) {
+      console.error('Failed to parse Google Sign-In response:', err);
+      setDriveStatus('Failed to process Google Sign-In response');
+    }
   }, []);
 
   useEffect(() => {
-    window.google?.accounts.id.initialize({
-      client_id: '534251225749-b7rjflroua415i616iopie6s09sp1isd.apps.googleusercontent.com',
-      callback: handleCredentialResponse,
-      auto_select: false,
-      scope: 'https://www.googleapis.com/auth/drive.file',
-    });
+    if (window.google) {
+      window.google.accounts.id.initialize({
+        client_id: '534251225749-b7rjflroua415i616iopie6s09sp1isd.apps.googleusercontent.com',
+        callback: handleCredentialResponse,
+        auto_select: false,
+        scope: 'https://www.googleapis.com/auth/drive.file',
+      });
 
-    window.google?.accounts.id.renderButton(
-      document.getElementById('google-signin-button'),
-      {
-        theme: 'outline',
-        size: 'large',
-        text: 'sign_in_with',
-        shape: 'rectangular',
-      }
-    );
+      window.google.accounts.id.renderButton(
+        document.getElementById('google-signin-button'),
+        {
+          theme: 'outline',
+          size: 'large',
+          text: 'sign_in_with',
+          shape: 'rectangular',
+        }
+      );
 
-    window.google?.accounts.id.prompt();
+      window.google.accounts.id.prompt();
+    } else {
+      console.error('Google Identity Services not loaded');
+      setDriveStatus('Google Sign-In script not loaded');
+    }
   }, [handleCredentialResponse]);
 
   const handleSignOut = () => {
@@ -136,6 +152,15 @@ function App() {
     });
   };
 
+  // Debug button disabled state
+  useEffect(() => {
+    console.log('Button state check:', {
+      clientName: formData.clientName,
+      accessToken: !!accessToken,
+      hasMedia: formData.rooms.some(room => room.photos.length > 0 || room.furnitureItems.some(item => item.photo)),
+    });
+  }, [formData.clientName, accessToken, formData.rooms]);
+
   return (
     <div className="p-4 max-w-md mx-auto bg-gray-100 min-h-screen">
       <h1 className="text-2xl font-bold mb-4">Assessment App</h1>
@@ -157,11 +182,20 @@ function App() {
               onClick={() => saveToGoogleDrive(formData, accessToken, setDriveStatus)}
               className="bg-blue-500 text-white px-4 py-2 rounded"
               disabled={!formData.clientName || !accessToken || !formData.rooms.some(room => room.photos.length > 0 || room.furnitureItems.some(item => item.photo))}
-              title={!formData.clientName ? 'Enter a client name' : !accessToken ? 'Sign in with Google' : !formData.rooms.some(room => room.photos.length > 0 || room.furnitureItems.some(item => item.photo)) ? 'Add at least one photo or video' : ''}
+              title={
+                !formData.clientName ? 'Enter a client name' :
+                !accessToken ? 'Sign in with Google' :
+                !formData.rooms.some(room => room.photos.length > 0 || room.furnitureItems.some(item => item.photo)) ? 'Add at least one photo or video' :
+                'Save to Google Drive'
+              }
             >
               Save to Google Drive
             </button>
-            {driveStatus && <p className="text-sm text-red-500 mt-2">{driveStatus}</p>}
+            {driveStatus && (
+              <p className={`text-sm mt-2 ${driveStatus.includes('Failed') ? 'text-red-500' : 'text-green-500'}`}>
+                {driveStatus}
+              </p>
+            )}
           </div>
         ) : (
           <div id="google-signin-button"></div>

@@ -205,6 +205,11 @@ async function getOrCreateClientFolder(clientName, accessToken, setDriveStatus) 
     throw new Error('Client name and access token are required');
   }
 
+  if (!window.gapi?.client?.drive) {
+    setDriveStatus('Google Drive API not initialized');
+    throw new Error('Google Drive API not initialized');
+  }
+
   try {
     setDriveStatus('Checking for client folder...');
     const response = await window.gapi.client.drive.files.list({
@@ -233,7 +238,7 @@ async function getOrCreateClientFolder(clientName, accessToken, setDriveStatus) 
     setDriveStatus(`Created folder: ${clientName}`);
     return folderResponse.result.id;
   } catch (err) {
-    setDriveStatus(`Failed to get or create folder: ${err.message}`);
+    setDriveStatus(`Failed to get or create folder: ${err.message || err.error}`);
     throw err;
   }
 }
@@ -267,7 +272,7 @@ async function uploadFileToDrive(file, folderId, accessToken, roomName, itemId, 
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to upload file: ${response.statusText}`);
+      throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
     }
 
     setDriveStatus(`Successfully uploaded ${fileName}`);
@@ -331,6 +336,6 @@ async function saveToGoogleDrive(formData, accessToken, setDriveStatus) {
     setDriveStatus('All media files have been successfully uploaded to Google Drive!');
   } catch (err) {
     console.error('Failed to save to Google Drive:', err);
-    setDriveStatus(`Failed to save to Google Drive: ${err.message}`);
+    setDriveStatus(`Failed to save to Google Drive: ${err.message || err.error}`);
   }
 }
