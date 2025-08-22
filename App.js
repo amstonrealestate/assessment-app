@@ -65,7 +65,7 @@ function App() {
     if (window.gapi) {
       window.gapi.load('client', () => {
         window.gapi.client.init({
-          apiKey: '534251225749-b7rjflroua415i616iopie6s09sp1isd.apps.googleusercontent.com', 
+          apiKey: 'AIzaSyCkVElXGRTtahGa140YDCW9d9JK7D0qhbQ', 
           discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
         }).then(() => {
           console.log('Google API Client initialized successfully');
