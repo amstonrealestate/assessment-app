@@ -72,15 +72,24 @@ function RoomForm({ formData, setFormData, model, loadingModel, itemCounter, set
     if (item.photo) URL.revokeObjectURL(item.photo);
     itemList.splice(itemIndex, 1);
     setFormData({ ...formData, rooms: newRooms });
+    console.log('Item removed:', { roomIndex, itemIndex, type, remainingItems: itemList.length });
   };
 
   const handleRoomPhotoUpload = useCallback((e, roomIndex) => {
     const files = e.target.files;
+    console.log('Room photo upload triggered:', { roomIndex, files: files.length });
     if (files.length > 0) {
       const newRooms = [...formData.rooms];
-      const newPhotos = Array.from(files).map(file => URL.createObjectURL(file));
-      newRooms[roomIndex].photos.push(...newPhotos);
-      setFormData({ ...formData, rooms: newRooms });
+      const newPhotos = Array.from(files).map(file => {
+        const url = URL.createObjectURL(file);
+        console.log('Generated photo URL:', { roomIndex, file: file.name, url });
+        return url;
+      });
+      newRooms[roomIndex].photos = [...newRooms[roomIndex].photos, ...newPhotos];
+      setFormData(prevFormData => {
+        console.log('Room photos updated:', { roomIndex, photos: newRooms[roomIndex].photos });
+        return { ...prevFormData, rooms: newRooms };
+      });
 
       newPhotos.forEach((photoUrl, index) => {
         setTimeout(() => analyzeRoomPhoto(photoUrl, roomIndex, true, formData, setFormData, itemCounter, setItemCounter, model, loadingModel), (index + 1) * 1000);
@@ -90,12 +99,16 @@ function RoomForm({ formData, setFormData, model, loadingModel, itemCounter, set
 
   const handleFurniturePhotoUpload = useCallback((e, roomIndex, itemIndex) => {
     const file = e.target.files[0];
+    console.log('Furniture photo upload triggered:', { roomIndex, itemIndex, file: file?.name });
     if (!file) return;
 
     const newRooms = [...formData.rooms];
     const photoUrl = URL.createObjectURL(file);
     newRooms[roomIndex].furnitureItems[itemIndex].photo = photoUrl;
-    setFormData({ ...formData, rooms: newRooms });
+    setFormData(prevFormData => {
+      console.log('Furniture photo updated:', { roomIndex, itemIndex, photoUrl });
+      return { ...prevFormData, rooms: newRooms };
+    });
 
     setTimeout(() => analyzeFurniturePhoto(photoUrl, roomIndex, itemIndex, formData, setFormData, model, loadingModel), 1000);
   }, [formData.rooms, model, loadingModel]);
@@ -110,7 +123,10 @@ function RoomForm({ formData, setFormData, model, loadingModel, itemCounter, set
     newRooms[roomIndex].photos.forEach((photoUrl, index) => {
       setTimeout(() => analyzeRoomPhoto(photoUrl, roomIndex, index > 0, formData, setFormData, itemCounter, setItemCounter, model, loadingModel), (index + 1) * 1000);
     });
-    setFormData({ ...formData, rooms: newRooms });
+    setFormData(prevFormData => {
+      console.log('Room photo removed:', { roomIndex, photoIndex, remainingPhotos: newRooms[roomIndex].photos });
+      return { ...prevFormData, rooms: newRooms };
+    });
   };
 
   const removeFurniturePhoto = (roomIndex, itemIndex) => {
@@ -118,7 +134,10 @@ function RoomForm({ formData, setFormData, model, loadingModel, itemCounter, set
     const item = newRooms[roomIndex].furnitureItems[itemIndex];
     if (item.photo) URL.revokeObjectURL(item.photo);
     newRooms[roomIndex].furnitureItems[itemIndex].photo = null;
-    setFormData({ ...formData, rooms: newRooms });
+    setFormData(prevFormData => {
+      console.log('Furniture photo removed:', { roomIndex, itemIndex });
+      return { ...prevFormData, rooms: newRooms };
+    });
   };
 
   return (

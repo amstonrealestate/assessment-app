@@ -65,19 +65,19 @@ function App() {
     if (window.gapi) {
       window.gapi.load('client', () => {
         window.gapi.client.init({
-          apiKey: 'YOUR_API_KEY', // Replace with your Google API Key
+          apiKey: '534251225749-b7rjflroua415i616iopie6s09sp1isd.apps.googleusercontent.com', 
           discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
         }).then(() => {
           console.log('Google API Client initialized successfully');
           setDriveStatus('Google Drive API ready');
         }).catch(err => {
           console.error('Google API Client init failed:', err);
-          setDriveStatus(`Failed to initialize Google Drive API: ${err.error || err.message}`);
+          setDriveStatus(`Failed to initialize Google Drive API: ${err.message || err.error || 'Check API key and Drive API settings'}`);
         });
       });
     } else {
       console.error('gapi not loaded');
-      setDriveStatus('Google API Client script not loaded');
+      setDriveStatus('Google API Client script not loaded. Please refresh the page.');
     }
   }, []);
 
@@ -93,9 +93,10 @@ function App() {
       });
       setAccessToken(response.credential);
       console.log('Access token set:', response.credential);
+      setDriveStatus('Signed in successfully. Enter a client name and add media to enable saving to Google Drive.');
     } catch (err) {
       console.error('Failed to parse Google Sign-In response:', err);
-      setDriveStatus('Failed to process Google Sign-In response');
+      setDriveStatus('Failed to process Google Sign-In response: ' + err.message);
     }
   }, []);
 
@@ -121,7 +122,7 @@ function App() {
       window.google.accounts.id.prompt();
     } else {
       console.error('Google Identity Services not loaded');
-      setDriveStatus('Google Sign-In script not loaded');
+      setDriveStatus('Google Sign-In script not loaded. Please refresh the page.');
     }
   }, [handleCredentialResponse]);
 
@@ -154,11 +155,26 @@ function App() {
 
   // Debug button disabled state
   useEffect(() => {
+    const hasMedia = formData.rooms.some(room => room.photos.length > 0 || room.furnitureItems.some(item => item.photo));
     console.log('Button state check:', {
       clientName: formData.clientName,
       accessToken: !!accessToken,
-      hasMedia: formData.rooms.some(room => room.photos.length > 0 || room.furnitureItems.some(item => item.photo)),
+      hasMedia,
+      photos: formData.rooms.map(room => ({
+        roomName: room.name,
+        photos: room.photos,
+        furniturePhotos: room.furnitureItems.filter(item => item.photo).map(item => item.photo),
+      })),
     });
+    if (!formData.clientName) {
+      setDriveStatus('Enter a client name to enable saving to Google Drive.');
+    } else if (!accessToken) {
+      setDriveStatus('Sign in with Google to enable saving to Google Drive.');
+    } else if (!hasMedia) {
+      setDriveStatus('Add at least one photo or video to enable saving to Google Drive.');
+    } else {
+      setDriveStatus('Ready to save to Google Drive.');
+    }
   }, [formData.clientName, accessToken, formData.rooms]);
 
   return (

@@ -206,14 +206,14 @@ async function getOrCreateClientFolder(clientName, accessToken, setDriveStatus) 
   }
 
   if (!window.gapi?.client?.drive) {
-    setDriveStatus('Google Drive API not initialized');
+    setDriveStatus('Google Drive API not initialized. Please refresh the page or check API configuration.');
     throw new Error('Google Drive API not initialized');
   }
 
   try {
     setDriveStatus('Checking for client folder...');
     const response = await window.gapi.client.drive.files.list({
-      q: `name='${clientName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      q: `name='${clientName.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
       fields: 'files(id, name)',
       spaces: 'drive',
     });
@@ -238,7 +238,7 @@ async function getOrCreateClientFolder(clientName, accessToken, setDriveStatus) 
     setDriveStatus(`Created folder: ${clientName}`);
     return folderResponse.result.id;
   } catch (err) {
-    setDriveStatus(`Failed to get or create folder: ${err.message || err.error}`);
+    setDriveStatus(`Failed to get or create folder: ${err.message || err.error || 'Check API key and Drive API settings'}`);
     throw err;
   }
 }
@@ -278,7 +278,7 @@ async function uploadFileToDrive(file, folderId, accessToken, roomName, itemId, 
     setDriveStatus(`Successfully uploaded ${fileName}`);
     return await response.json();
   } catch (err) {
-    setDriveStatus(`Failed to upload ${fileName}: ${err.message}`);
+    setDriveStatus(`Failed to upload ${fileName}: ${err.message || 'Check API key and Drive API settings'}`);
     throw err;
   }
 }
@@ -303,31 +303,44 @@ async function saveToGoogleDrive(formData, accessToken, setDriveStatus) {
     const filesToUpload = [];
     formData.rooms.forEach((room, roomIndex) => {
       room.photos.forEach((photoUrl, photoIndex) => {
-        const byteString = atob(photoUrl.split(',')[1]);
-        const mimeString = photoUrl.split(',')[0].split(':')[1].split(';')[0];
-        const ab = new ArrayBuffer(byteString.length);
-        const ia = new Uint8Array(ab);
-        for (let i = 0; i < byteString.length; i++) {
-          ia[i] = byteString.charCodeAt(i);
-        }
-        const blob = new Blob([ab], { type: mimeString });
-        filesToUpload.push({ file: blob, roomName: room.name, itemId: `RoomPhoto-${photoIndex + 1}` });
-      });
-
-      room.furnitureItems.forEach((item, itemIndex) => {
-        if (item.photo) {
-          const byteString = atob(item.photo.split(',')[1]);
-          const mimeString = item.photo.split(',')[0].split(':')[1].split(';')[0];
+        try {
+          const byteString = atob(photoUrl.split(',')[1]);
+          const mimeString = photoUrl.split(',')[0].split(':')[1].split(';')[0];
           const ab = new ArrayBuffer(byteString.length);
           const ia = new Uint8Array(ab);
           for (let i = 0; i < byteString.length; i++) {
             ia[i] = byteString.charCodeAt(i);
           }
           const blob = new Blob([ab], { type: mimeString });
-          filesToUpload.push({ file: blob, roomName: room.name, itemId: item.id });
+          filesToUpload.push({ file: blob, roomName: room.name, itemId: `RoomPhoto-${photoIndex + 1}` });
+        } catch (err) {
+          setDriveStatus(`Failed to process photo ${photoIndex + 1} for room ${room.name || 'Unnamed'}: ${err.message}`);
+        }
+      });
+
+      room.furnitureItems.forEach((item, itemIndex) => {
+        if (item.photo) {
+          try {
+            const byteString = atob(item.photo.split(',')[1]);
+            const mimeString = item.photo.split(',')[0].split(':')[1].split(';')[0];
+            const ab = new ArrayBuffer(byteString.length);
+            const ia = new Uint8Array(ab);
+            for (let i = 0; i < byteString.length; i++) {
+              ia[i] = byteString.charCodeAt(i);
+            }
+            const blob = new Blob([ab], { type: mimeString });
+            filesToUpload.push({ file: blob, roomName: room.name, itemId: item.id });
+          } catch (err) {
+            setDriveStatus(`Failed to process photo for item ${item.id} in room ${room.name || 'Unnamed'}: ${err.message}`);
+          }
         }
       });
     });
+
+    if (filesToUpload.length === 0) {
+      setDriveStatus('No valid photos or videos to upload.');
+      return;
+    }
 
     for (const { file, roomName, itemId } of filesToUpload) {
       await uploadFileToDrive(file, folderId, accessToken, roomName, itemId, setDriveStatus);
@@ -336,6 +349,6 @@ async function saveToGoogleDrive(formData, accessToken, setDriveStatus) {
     setDriveStatus('All media files have been successfully uploaded to Google Drive!');
   } catch (err) {
     console.error('Failed to save to Google Drive:', err);
-    setDriveStatus(`Failed to save to Google Drive: ${err.message || err.error}`);
+    setDriveStatus(`Failed to save to Google Drive: ${err.message || err.error || 'Check API key and Drive API settings'}`);
   }
 }
